@@ -26,6 +26,10 @@ import {
   readdirSync,
   realpathSync,
   lstatSync,
+  openSync,
+  closeSync,
+  fstatSync,
+  constants,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -49,14 +53,36 @@ if (process.argv[2] === "--csp-hashes") {
     throw new Error("--csp-hashes directory must be a real directory inside the current working directory");
   }
   const hashes = new Set();
+  // Resolve each candidate before opening it, then open the resolved path with
+  // O_NOFOLLOW and verify the descriptor is a regular file. This prevents a
+  // symlink (including one swapped in between enumeration and reading) from
+  // redirecting the CSP scan outside its selected tree.
+  const readHtml = (candidate) => {
+    const resolved = realpathSync(candidate);
+    if (!inside(scanRoot, resolved)) return "";
+    let fd;
+    try {
+      fd = openSync(resolved, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      if (!fstatSync(fd).isFile()) return "";
+      return readFileSync(fd, "utf8");
+    } catch (error) {
+      if (error.code === "ELOOP" || error.code === "ENOENT" || error.code === "ENOTDIR") return "";
+      throw error;
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+  };
   const scan = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (entry.isSymbolicLink()) continue;
-      const path = posix.join(dir, entry.name);
-      if (entry.isDirectory()) scan(path);
-      else if (entry.isFile() && path.endsWith(".html")) {
-        for (const [, code] of readFileSync(path, "utf8").matchAll(
-          /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g,
+      const candidate = posix.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const resolved = realpathSync(candidate);
+        if (inside(scanRoot, resolved) && lstatSync(candidate).isDirectory()) scan(resolved);
+      } else if (entry.isFile() && candidate.endsWith(".html")) {
+        const html = readHtml(candidate);
+        for (const [, code] of html.matchAll(
+          /<script(?![^>]*\\bsrc=)[^>]*>([\\s\\S]*?)<\\/script>/g,
         )) {
           if (code) hashes.add(`'sha256-${createHash("sha256").update(code).digest("base64")}'`);
         }
