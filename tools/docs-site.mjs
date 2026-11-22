@@ -33,7 +33,7 @@ import { createHash } from "node:crypto";
 import { posix, resolve, relative, sep } from "node:path";
 
 // --csp-hashes: print the CSP sources ('sha256-...') that allow the inline
-// scripts in the built HTML under <dir>, for a Content-Security-Policy that
+// scripts in the built HTML under site-docs/, for a Content-Security-Policy that
 // does not allow inline scripts in general.
 if (process.argv[2] === "--csp-hashes") {
   // The documentation build always writes to this fixed, repository-local
