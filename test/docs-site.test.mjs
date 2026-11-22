@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,45 +14,57 @@ function fixture(t) {
   return cwd;
 }
 
-function scan(cwd, path) {
-  return spawnSync(process.execPath, [script, "--csp-hashes", path], {
-    cwd,
-    encoding: "utf8",
-  });
+function scan(cwd, extraArg) {
+  const args = [script, "--csp-hashes"];
+  if (extraArg) args.push(extraArg);
+  return spawnSync(process.execPath, args, { cwd, encoding: "utf8" });
 }
 
-test("CSP scan accepts a directory inside the working directory", (t) => {
+function hash(code) {
+  return `'sha256-${createHash("sha256").update(code).digest("base64")}'`;
+}
+
+test("CSP scan hashes inline scripts in site-docs", (t) => {
   const cwd = fixture(t);
-  mkdirSync(join(cwd, "site"));
-  writeFileSync(join(cwd, "site/index.html"), "<script>safe()</script>");
-  const result = scan(cwd, "site");
+  mkdirSync(join(cwd, "site-docs"));
+  writeFileSync(join(cwd, "site-docs/index.html"), "<script>safe()</script>");
+  const result = scan(cwd);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /sha256-/);
+  assert.ok(result.stdout.includes(hash("safe()")));
 });
 
-test("CSP scan rejects paths outside the working directory", (t) => {
-  const cwd = fixture(t);
-  const result = scan(cwd, "../outside");
-  assert.notEqual(result.status, 0);
-});
-
-test("CSP scan rejects a root symlink pointing outside the working directory", (t) => {
+test("CSP scan ignores CLI paths outside site-docs", (t) => {
   const cwd = fixture(t);
   const outside = mkdtempSync(join(tmpdir(), "docs-site-outside-"));
   t.after(() => rmSync(outside, { recursive: true, force: true }));
-  symlinkSync(outside, join(cwd, "site"));
-  const result = scan(cwd, "site");
-  assert.notEqual(result.status, 0);
-});
-
-test("CSP scan does not read HTML files through symlinks", (t) => {
-  const cwd = fixture(t);
-  const outside = mkdtempSync(join(tmpdir(), "docs-site-outside-"));
-  t.after(() => rmSync(outside, { recursive: true, force: true }));
-  mkdirSync(join(cwd, "site"));
+  mkdirSync(join(cwd, "site-docs"));
+  writeFileSync(join(cwd, "site-docs/index.html"), "<script>inside()</script>");
   writeFileSync(join(outside, "secret.html"), "<script>outsideSecret()</script>");
-  symlinkSync(join(outside, "secret.html"), join(cwd, "site/secret.html"));
-  const result = scan(cwd, "site");
+  const result = scan(cwd, outside);
   assert.equal(result.status, 0, result.stderr);
-  assert.doesNotMatch(result.stdout, /sha256-/);
+  assert.ok(result.stdout.includes(hash("inside()")));
+  assert.ok(!result.stdout.includes(hash("outsideSecret()")));
+});
+
+test("CSP scan does not read HTML through a root symlink outside site-docs", (t) => {
+  const cwd = fixture(t);
+  const outside = mkdtempSync(join(tmpdir(), "docs-site-outside-"));
+  t.after(() => rmSync(outside, { recursive: true, force: true }));
+  writeFileSync(join(outside, "secret.html"), "<script>outsideSecret()</script>");
+  symlinkSync(outside, join(cwd, "site-docs"));
+  const result = scan(cwd);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(!result.stdout.includes(hash("outsideSecret()")));
+});
+
+test("CSP scan does not read HTML files through nested symlinks", (t) => {
+  const cwd = fixture(t);
+  const outside = mkdtempSync(join(tmpdir(), "docs-site-outside-"));
+  t.after(() => rmSync(outside, { recursive: true, force: true }));
+  mkdirSync(join(cwd, "site-docs"));
+  writeFileSync(join(outside, "secret.html"), "<script>outsideSecret()</script>");
+  symlinkSync(join(outside, "secret.html"), join(cwd, "site-docs/secret.html"));
+  const result = scan(cwd);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(!result.stdout.includes(hash("outsideSecret()")));
 });
