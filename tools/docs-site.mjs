@@ -53,7 +53,7 @@ if (process.argv[2] === "--csp-hashes") {
     if (rel === ".." || rel.startsWith(`..${sep}`) || posix.isAbsolute(rel)) continue;
     const html = readFileSync(resolved, "utf8");
     for (const [, code] of html.matchAll(
-      /<script(?![^>]*\bsrc=)[^>]*>([\s\\S]*?)<\/script>/g,
+      /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g,
     )) {
       if (code) hashes.add(`'sha256-${createHash("sha256").update(code).digest("base64")}'`);
     }
