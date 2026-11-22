@@ -29,7 +29,7 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/docs-venv"
           "$RUNNER_TEMP/docs-venv/bin/pip" install --no-deps -r requirements-docs.txt
       - run: node tools/docs-site.mjs
-      - run: "$RUNNER_TEMP/docs-venv/bin/zensical" build --clean --strict
+      - run: $RUNNER_TEMP/docs-venv/bin/zensical build --clean --strict
       - uses: actions/upload-pages-artifact@v5.0.0
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         with:
