@@ -3,7 +3,7 @@
 //
 //   node tools/docs-site.mjs && zensical build    # the site, in site-docs/
 //   node tools/docs-site.mjs --wiki <dir>         # the GitHub wiki, in <dir>
-//   node tools/docs-site.mjs --csp-hashes          # CSP hashes of site-docs/
+//   node tools/docs-site.mjs --csp-hashes          # CSP hashes of site/
 //
 // README.md becomes the start page and docker/README.md the Docker page; docs/
 // is included as it is, except docs/agents/, which is written for coding agents.
@@ -33,15 +33,15 @@ import { createHash } from "node:crypto";
 import { posix, resolve, relative, sep } from "node:path";
 
 // --csp-hashes: print the CSP sources ('sha256-...') that allow the inline
-// scripts in the built HTML under site-docs/, for a Content-Security-Policy that
+// scripts in the built HTML under site/, for a Content-Security-Policy that
 // does not allow inline scripts in general.
 if (process.argv[2] === "--csp-hashes") {
   // The documentation build always writes to this fixed, repository-local
   // directory. Do not accept a path from argv here: this command only scans
   // the generated site and must never become an arbitrary file reader.
   const cwdRoot = realpathSync(process.cwd());
-  const scanRoot = resolve(cwdRoot, "site-docs");
-  if (!existsSync(scanRoot)) throw new Error("--csp-hashes requires site-docs/ to exist");
+  const scanRoot = resolve(cwdRoot, "site");
+  if (!existsSync(scanRoot)) throw new Error("--csp-hashes requires site/ to exist");
   const hashes = new Set();
   // globSync receives a fixed pattern and a fixed repository-local root;
   // no command-line value or directory-entry name is used to build a path.
