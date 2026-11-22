@@ -11,7 +11,7 @@ Det finns fyra sätt, och alla ger samma app. Välj ett.
 | Sätt | Du behöver | Körs på |
 |---|---|---|
 | [Docker](#docker) | Docker | Din egen dator eller server |
-| [Direkt med Wrangler](#direkt-med-wrangler) | Node.js 22.9 eller nyare, ett Cloudflare-konto | Cloudflare |
+| [Direkt med Wrangler](#direkt-med-wrangler) | Node.js 22.12 eller nyare, ett Cloudflare-konto | Cloudflare |
 | [GitHub Actions](#github-actions) | Ett GitHub-konto, ett Cloudflare-konto | Cloudflare, vid varje push till `main` |
 | [Cloudflare Workers Builds](#cloudflare-workers-builds) | Ett GitHub- eller GitLab-konto, ett Cloudflare-konto | Cloudflare, vid varje push till `main` |
 
