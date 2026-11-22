@@ -82,7 +82,7 @@ if (process.argv[2] === "--csp-hashes") {
       } else if (entry.isFile() && candidate.endsWith(".html")) {
         const html = readHtml(candidate);
         for (const [, code] of html.matchAll(
-          /<script(?![^>]*\\bsrc=)[^>]*>([\\s\\S]*?)<\\/script>/g,
+          /<script(?![^>]*\bsrc=)[^>]*>([\s\\S]*?)<\/script>/g,
         )) {
           if (code) hashes.add(`'sha256-${createHash("sha256").update(code).digest("base64")}'`);
         }
