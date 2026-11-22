@@ -384,7 +384,7 @@ async function main() {
           // this file write.
           const localPassword = randomBytes(18).toString("base64url");
           const file = join(root, ".setup-secrets");
-          writeFileSync(file, `ADMIN_PASSWORD=${localPassword}\\n`, { mode: 0o600 });
+          writeFileSync(file, `ADMIN_PASSWORD=${localPassword}\n`, { mode: 0o600 });
           chmodSync(file, 0o600);
           password = localPassword;
         }
