@@ -3,7 +3,7 @@
 //
 //   node tools/docs-site.mjs && zensical build    # the site, in site-docs/
 //   node tools/docs-site.mjs --wiki <dir>         # the GitHub wiki, in <dir>
-//   node tools/docs-site.mjs --csp-hashes <dir>   # CSP hashes of the built site
+//   node tools/docs-site.mjs --csp-hashes          # CSP hashes of site-docs/
 //
 // README.md becomes the start page and docker/README.md the Docker page; docs/
 // is included as it is, except docs/agents/, which is written for coding agents.
@@ -40,18 +40,19 @@ import { posix, resolve, relative, sep } from "node:path";
 // scripts in the built HTML under <dir>, for a Content-Security-Policy that
 // does not allow inline scripts in general.
 if (process.argv[2] === "--csp-hashes") {
-  const rawRoot = process.argv[3];
-  if (!rawRoot) throw new Error("usage: node tools/docs-site.mjs --csp-hashes <dir>");
+  // The documentation build always writes to this fixed, repository-local
+  // directory. Do not accept a path from argv here: this command only scans
+  // the generated site and must never become an arbitrary file reader.
   const cwdRoot = realpathSync(process.cwd());
-  const requestedRoot = resolve(cwdRoot, rawRoot);
-  const scanRoot = realpathSync(requestedRoot);
+  const scanRoot = resolve(cwdRoot, "site-docs");
+  const rootInfo = lstatSync(scanRoot);
+  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
+    throw new Error("--csp-hashes requires site-docs/ to be a real directory");
+  }
   const inside = (root, path) => {
     const rel = relative(root, path);
     return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !posix.isAbsolute(rel));
   };
-  if (!inside(cwdRoot, scanRoot) || !lstatSync(requestedRoot).isDirectory() || lstatSync(requestedRoot).isSymbolicLink()) {
-    throw new Error("--csp-hashes directory must be a real directory inside the current working directory");
-  }
   const hashes = new Set();
   // Resolve each candidate before opening it, then open the resolved path with
   // O_NOFOLLOW and verify the descriptor is a regular file. This prevents a
