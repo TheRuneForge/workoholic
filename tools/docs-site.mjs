@@ -41,14 +41,7 @@ if (process.argv[2] === "--csp-hashes") {
   // the generated site and must never become an arbitrary file reader.
   const cwdRoot = realpathSync(process.cwd());
   const scanRoot = resolve(cwdRoot, "site-docs");
-  const rootInfo = lstatSync(scanRoot);
-  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) {
-    throw new Error("--csp-hashes requires site-docs/ to be a real directory");
-  }
-  const inside = (root, path) => {
-    const rel = relative(root, path);
-    return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !posix.isAbsolute(rel));
-  };
+  if (!existsSync(scanRoot)) throw new Error("--csp-hashes requires site-docs/ to exist");
   const hashes = new Set();
   // globSync receives a fixed pattern and a fixed repository-local root;
   // no command-line value or directory-entry name is used to build a path.
@@ -60,7 +53,7 @@ if (process.argv[2] === "--csp-hashes") {
     if (rel === ".." || rel.startsWith(`..${sep}`) || posix.isAbsolute(rel)) continue;
     const html = readFileSync(resolved, "utf8");
     for (const [, code] of html.matchAll(
-      /<script(?![^>]*\\bsrc=)[^>]*>([\\s\\S]*?)<\\/script>/g,
+      /<script(?![^>]*\bsrc=)[^>]*>([\s\\S]*?)<\/script>/g,
     )) {
       if (code) hashes.add(`'sha256-${createHash("sha256").update(code).digest("base64")}'`);
     }
