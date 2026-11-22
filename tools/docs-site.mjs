@@ -3,7 +3,7 @@
 //
 //   node tools/docs-site.mjs && zensical build    # the site, in site-docs/
 //   node tools/docs-site.mjs --wiki <dir>         # the GitHub wiki, in <dir>
-//   node tools/docs-site.mjs --csp-hashes <dir>   # CSP hashes of the built site
+//   node tools/docs-site.mjs --csp-hashes          # CSP hashes of site/
 //
 // README.md becomes the start page and docker/README.md the Docker page; docs/
 // is included as it is, except docs/agents/, which is written for coding agents.
@@ -24,31 +24,40 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
+  globSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { posix, resolve } from "node:path";
+import { posix, resolve, relative, sep } from "node:path";
 
 // --csp-hashes: print the CSP sources ('sha256-...') that allow the inline
-// scripts in the built HTML under <dir>, for a Content-Security-Policy that
+// scripts in the built HTML under site/, for a Content-Security-Policy that
 // does not allow inline scripts in general.
 if (process.argv[2] === "--csp-hashes") {
+  // The documentation build always writes to this fixed, repository-local
+  // directory. Do not accept a path from argv here: this command only scans
+  // the generated site and must never become an arbitrary file reader.
+  const cwdRoot = realpathSync(process.cwd());
+  const scanRoot = resolve(cwdRoot, "site");
+  if (!existsSync(scanRoot)) throw new Error("--csp-hashes requires site/ to exist");
   const hashes = new Set();
-  const scan = (dir) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = posix.join(dir, entry.name);
-      if (entry.isDirectory()) scan(path);
-      else if (path.endsWith(".html")) {
-        for (const [, code] of readFileSync(path, "utf8").matchAll(
-          /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g,
-        )) {
-          if (code) hashes.add(`'sha256-${createHash("sha256").update(code).digest("base64")}'`);
-        }
-      }
+  // globSync receives a fixed pattern and a fixed repository-local root;
+  // no command-line value or directory-entry name is used to build a path.
+  // realpath + containment also excludes symlinks that point outside site-docs.
+  for (const relativeFile of globSync("**/*.html", { cwd: scanRoot })) {
+    const candidate = resolve(scanRoot, relativeFile);
+    const resolved = realpathSync(candidate);
+    const rel = relative(scanRoot, resolved);
+    if (rel === ".." || rel.startsWith(`..${sep}`) || posix.isAbsolute(rel)) continue;
+    const html = readFileSync(resolved, "utf8");
+    for (const [, code] of html.matchAll(
+      /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g,
+    )) {
+      if (code) hashes.add(`'sha256-${createHash("sha256").update(code).digest("base64")}'`);
     }
-  };
-  scan(process.argv[3]);
+  }
   console.log([...hashes].sort().join(" "));
   process.exit(0);
 }

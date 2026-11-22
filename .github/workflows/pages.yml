@@ -17,19 +17,20 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version: 26
-      - uses: actions/setup-python@v7.1.0
-        with:
-          python-version: "3.15"
-      - run: pip install --no-deps -r requirements-docs.txt
+      - name: Install Node.js, npm and Python from Ubuntu APT
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends nodejs npm python3 python3-venv
+      - name: Install documentation dependencies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/docs-venv"
+          "$RUNNER_TEMP/docs-venv/bin/pip" install --no-deps -r requirements-docs.txt
       - run: node tools/docs-site.mjs
-      - run: zensical build --clean --strict
-      - uses: actions/upload-pages-artifact@v5.0.0
+      - run: '"$RUNNER_TEMP/docs-venv/bin/zensical" build --clean --strict'
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         with:
           path: site
@@ -46,4 +47,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v5.0.1
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346
