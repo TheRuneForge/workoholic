@@ -2,7 +2,7 @@
 // One-command setup of Workoholic on a Cloudflare account.
 //
 //   npm run setup:cloudflare            create resources, render, migrate and deploy
-//   npm run setup:cloudflare --check    only verify the token and show what would be created
+//   npm run setup:cloudflare -- --check    only verify the token and show what would be created
 //
 // Input: a temporary setup token (CLOUDFLARE_API_TOKEN) and PUBLIC_HOST, from
 // setup.env or the environment (see setup.example.env). Everything else is
