@@ -14,7 +14,7 @@ registerHooks({
     return nextResolve(specifier, context);
   },
 });
-const { smtpBinding } = await import("../docker/smtp.ts");
+const { smtpBinding } = await import("../docker/smtp.mjs");
 const encoder = new TextEncoder();
 
 function smtpSession({

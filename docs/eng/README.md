@@ -1,6 +1,6 @@
 # Workoholic
 
-Applies for jobs on your behalf at StudentConsulting, at most ten per calendar month, and collects them in a text file. The app is a Cloudflare Worker with D1, R2, Workflows and Browser Rendering, organised as a pnpm workspace: `apps/web`, `packages/core` and `packages/studentconsulting`.
+Applies for jobs on your behalf at StudentConsulting, at most ten per calendar month, and collects them in a text file. The app is a Cloudflare Worker with D1, R2, Workflows and Browser Rendering, organised as an npm workspace: `apps/web`, `packages/core` and `packages/studentconsulting`.
 
 All settings are `__NAME__` placeholders, so nothing specific to an environment is committed: your own values stay in a file git ignores, in GitHub Actions secrets or in Cloudflare build variables. Your StudentConsulting sign-in and the other secrets are entered in the app and stored encrypted.
 
@@ -11,7 +11,7 @@ There are four ways, and they all end in the same app. Pick one.
 | Way | You need | Runs on |
 |---|---|---|
 | [Docker](#docker) | Docker | Your own machine or server |
-| [From your computer](#from-your-computer) | Node.js 24, a Cloudflare account | Cloudflare |
+| [From your computer](#from-your-computer) | Node.js 22.12 or newer, a Cloudflare account | Cloudflare |
 | [GitHub Actions](#github-actions) | A GitHub account, a Cloudflare account | Cloudflare, on every push to `main` |
 | [Cloudflare Workers Builds](#cloudflare-workers-builds) | A GitHub or GitLab account, a Cloudflare account | Cloudflare, on every push to `main` |
 
@@ -43,26 +43,26 @@ The three Cloudflare ways use the same values. They are listed in `cloudflare.ex
 | `THEME_COOKIE_DOMAIN` | Optional. A parent domain to share the theme setting with your other sites. |
 | `SITE_FAMILY` | Name shown for the default theme. |
 
-The commands below need Node.js; each step can also be done in the Cloudflare dashboard.
+The commands below need Node.js. Install the project dependencies once with `npm ci --legacy-peer-deps`; this also installs Wrangler. Each step can also be done in the Cloudflare dashboard.
 
-Do this once, before the first deploy. The first and the third command print the IDs for the table above; an account has one Secrets Store, so if you already have one, use its ID from `npx wrangler secrets-store store list --remote` instead of creating it:
+Do this once, before the first deploy. The first and the third command print the IDs for the table above; an account has one Secrets Store, so if you already have one, use its ID from `npm exec -- wrangler secrets-store store list --remote` instead of creating it:
 
 ```sh
-npx wrangler d1 create workoholic
+npm exec -- wrangler d1 create workoholic
 ```
 
 ```sh
-npx wrangler r2 bucket create workoholic-evidence
+npm exec -- wrangler r2 bucket create workoholic-evidence
 ```
 
 ```sh
-npx wrangler secrets-store store create workoholic --remote
+npm exec -- wrangler secrets-store store create workoholic --remote
 ```
 
 Create the encryption key in the store. The command asks for the value; use the output of `openssl rand -base64 32`, keep a copy and never change it:
 
 ```sh
-npx wrangler secrets-store secret create YOUR_STORE_ID --name WORKOHOLIC_CONFIG_KEY --scopes workers --remote
+npm exec -- wrangler secrets-store secret create YOUR_STORE_ID --name WORKOHOLIC_CONFIG_KEY --scopes workers --remote
 ```
 
 Also add a self-hosted Access application for `PUBLIC_HOST` under Zero Trust → Access → Applications and copy its AUD tag, turn on Email Routing for the domain (the Worker has a `send_email` binding), and create an API token for deploying from the "Edit Cloudflare Workers" template with the permissions Account: D1: Edit and Account: Secrets Store: Edit added. The token is the value of `CLOUDFLARE_API_TOKEN` below.
@@ -78,7 +78,7 @@ cp cloudflare.example.env .cloudflare.env
 Fill in `.cloudflare.env` (git ignores every `*.env` file except the example), sign in once and deploy:
 
 ```sh
-npx wrangler login
+npm exec -- wrangler login
 ```
 
 ```sh
@@ -102,7 +102,7 @@ The same can be done by hand under Settings → Secrets and variables → Action
 In the Cloudflare dashboard, create a Worker named `workoholic` from your repository (Workers & Pages → Create → Import a repository) and set:
 
 - Deploy command: `sh tools/deploy.sh`
-- Or change nothing: with the default `npx wrangler deploy` and the build's API token (it needs D1: Edit, Workers Scripts: Edit, Workers KV Storage: Edit, Workers R2 Storage: Edit and Secrets Store: Edit), the build itself creates the D1 database, the Secrets Store key and the KV settings, fills in the placeholders and applies migrations (`postinstall` runs `tools/setup.mjs --workers-build`, only in Workers Builds of `main`). The Worker is served on its workers.dev address with password login; the generated password is in the KV namespace `workoholic-config`, key `first-login` (save it, then delete the key). Set the build variable `PUBLIC_HOST` to use your own domain instead.
+- Or change nothing: with the default `npm exec -- wrangler deploy` and the build's API token (it needs D1: Edit, Workers Scripts: Edit, Workers KV Storage: Edit, Workers R2 Storage: Edit and Secrets Store: Edit), the build itself creates the D1 database, the Secrets Store key and the KV settings, fills in the placeholders and applies migrations (`postinstall` runs `tools/setup.mjs --workers-build`, only in Workers Builds of `main`). The Worker is served on its workers.dev address with password login; the generated password is in the KV namespace `workoholic-config`, key `first-login` (save it, then delete the key). Set the build variable `PUBLIC_HOST` to use your own domain instead.
 - Build variables and secrets: every name from the table above with your value
 - API token: the token you created above; the token Cloudflare creates by itself cannot apply D1 migrations or bind the Secrets Store
 - Settings → Build → Branch control: turn off Enable Preview Builds
@@ -112,9 +112,9 @@ Cloudflare then deploys every push to `main`. Use either this or the GitHub Acti
 ## Develop
 
 ```sh
-pnpm install
-pnpm test
-pnpm typecheck
+npm ci --legacy-peer-deps
+npm test
+npm run typecheck
 ```
 
 Run your own copy:
@@ -122,7 +122,7 @@ Run your own copy:
 ```sh
 cp cloudflare.example.env my-values.env
 node tools/render.mjs my-values.env build
-(cd build && npx wrangler dev)
+(cd build && npm exec -- wrangler dev)
 ```
 
 Secrets such as `ADMIN_PASSWORD` and `SMTP_PASSWORD` do not belong in the values file. The database is created by the files in `migrations/`. Sign-in goes through Cloudflare Access.
@@ -137,20 +137,20 @@ All you need is a temporary token and your domain name. A script creates the res
 
    ```sh
    cp setup.example.env setup.env      # fill in CLOUDFLARE_API_TOKEN and PUBLIC_HOST
-   pnpm install
-   pnpm setup:cloudflare --check       # shows what would be created, changes nothing
-   pnpm setup:cloudflare               # creates D1, R2 and the key, migrates and deploys
+   npm ci --legacy-peer-deps
+   npm run setup:cloudflare -- --check       # shows what would be created, changes nothing
+   npm run setup:cloudflare               # creates D1, R2 and the key, migrates and deploys
    ```
 
 4. A generated sign-in password is written to `.setup-secrets` (readable by the owner only). Save it and delete the file.
-5. Connect the repo under Workers & Pages → workoholic → Settings → Builds and run `pnpm setup:cloudflare` again (the token is still needed). The script then sets the build and deploy commands itself. The settings (no secrets) are stored in a KV namespace, `workoholic-config`, and the build reads them from there, so no build variables are needed. Without the **Workers CI: Edit** permission the script prints the two commands to fill in by hand instead. If the build cannot read KV, the same output has a fallback with build variables. **Delete the temporary token** in the dashboard only once this step is done.
+5. Connect the repo under Workers & Pages → workoholic → Settings → Builds and run `npm run setup:cloudflare` again (the token is still needed). The script then sets the build and deploy commands itself. The settings (no secrets) are stored in a KV namespace, `workoholic-config`, and the build reads them from there, so no build variables are needed. Without the **Workers CI: Edit** permission the script prints the two commands to fill in by hand instead. If the build cannot read KV, the same output has a fallback with build variables. **Delete the temporary token** in the dashboard only once this step is done.
 
 The script is safe to run again: existing resources are reused, and the encryption key `WORKOHOLIC_CONFIG_KEY` is never replaced.
 
 **Afterwards**
 - **Running setup again:** for the first setup and for changing settings, for example switching login to Cloudflare Access (`AUTH=access` plus `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` in `setup.env`). A rerun needs a token with the setup permissions (D1, R2, Workers Scripts, Workers KV, Secrets Store and Workers CI). If you deleted the first one, create a new one with the link in step 2. Only one run at a time is allowed per checkout (`.setup-lock`). If you run the script from several checkouts, coordinate the runs yourself, otherwise two passwords can be generated and only the last one works.
 - **Code changes and new migrations** on a running installation go through Workers Builds. If the build stops at the migration step, the default Workers Builds token may lack D1 access. Pick your own token with D1: Edit, Workers Scripts: Edit and Workers KV Storage: Read (the build reads the settings from KV) under Settings → Builds → API token.
-- **Further secrets**, for example `STUDENTCONSULTING_EMAIL` and `STUDENTCONSULTING_PASSWORD`, go in the file `secrets.env` (`NAME=value` lines, git-ignored) and are sent with `pnpm secrets:push`. Only the names are printed. A token with Workers Scripts: Edit as `CLOUDFLARE_API_TOKEN` in `setup.env` is enough.
+- **Further secrets**, for example `STUDENTCONSULTING_EMAIL` and `STUDENTCONSULTING_PASSWORD`, go in the file `secrets.env` (`NAME=value` lines, git-ignored) and are sent with `npm run secrets:push`. Only the names are printed. A token with Workers Scripts: Edit as `CLOUDFLARE_API_TOKEN` in `setup.env` is enough.
 - **Requirements:** Node 22.9 or newer (Node loads `setup.env` with `--env-file-if-exists`) and macOS, Linux or WSL. The scripts do not run directly on Windows.
 
 `docker/entrypoint.sh` renders and starts the app from environment variables in a container, with data in `/data`.

@@ -129,9 +129,6 @@ dist
 # Stores Visual Studio Code versions used for testing Visual Studio Code extensions
 .vscode-test
 
-# pnpm
-.pnpm-store
-
 # yarn v3
 .pnp.*
 .yarn/*
@@ -396,3 +393,4 @@ statusline.sh
 
 # Test reports
 junit.xml
+--help
