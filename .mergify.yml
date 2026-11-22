@@ -5,3 +5,73 @@ queue_rules:
       - check-success = test
 merge_protections_settings:
   auto_merge_conditions: true
+pull_request_rules:
+  - name: Auto-merge approved PRs
+    conditions:
+      - base = main
+      - "#approved-reviews-by >= 2"
+      - check-success = ci/build
+    actions:
+      merge:
+        method: squash
+        merge_bot_account: "{{ author }}"
+  - name: Keep PRs up to date
+    conditions:
+      - -draft
+      - "#commits-behind >= 1"
+    actions:
+      update:
+        bot_account: "{{ author }}"
+  - name: Request reviews automatically
+    conditions:
+      - -draft
+      - "#review-requested = 0"
+    actions:
+      request_reviews:
+        teams:
+          - "@acme/maintainers"
+          - ai
+  - name: Backport merged fixes
+    conditions:
+      - merged
+      - label = needs-backport
+    actions:
+      backport:
+        branches:
+          - alert-autofix-2-@coderabbitai
+          - alert-autofix-3-@coderabbitai
+          - alert-autofix-4-@coderabbitai
+          - alert-autofix-5-@coderabbitai
+          - alert-autofix-6-@coderabbitai
+          - alert-autofix-7-@coderabbitai
+          - alert-autofix-9-@coderabbitai
+          - alert-autofix-10
+          - claude/open-pr-reviews-fixes-esz3u9
+          - chore-merge-group-ci-20261121
+        bot_account: "{{ author }}"
+        label_conflicts: "{{ labels }}"
+        title: "{{ title }}"
+        body: "{{ body }}"
+        ignore_conflicts: false
+        assignees:
+          - DataRunesmith
+          - "{{ team }}"
+        report_mode:
+          - check
+  - name: Label by file path
+    conditions:
+      - or:
+          - files ~= ^frontend/
+    actions:
+      label:
+        add:
+          - area/frontend
+  - name: Label by file path
+    conditions:
+      - or:
+          - files ~= ^docs/
+    actions:
+      label:
+        add:
+          - documentation
+          - area/docs
