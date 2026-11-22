@@ -390,7 +390,7 @@ async function main() {
             const now = Math.floor(Date.now() / 1000);
             const claim = await d1Query(
               "INSERT INTO workoholic_setup_lock (name, owner, lease_until) VALUES ('first-login', ?, ?) ON CONFLICT(name) DO UPDATE SET owner = excluded.owner, lease_until = excluded.lease_until WHERE workoholic_setup_lock.lease_until < ?",
-              [owner, now + 90, now],
+              [owner, String(now + 90), String(now)],
             );
             if ((claim.meta?.changes ?? 0) > 0) {
               password = randomBytes(18).toString("base64url");
@@ -419,7 +419,7 @@ async function main() {
         });
         say("✔ Set AUTH_MODE and a generated ADMIN_PASSWORD");
         say(localPassword
-          ? "→ The password is in .setup-secrets. Save it in your password manager, then delete the file."
+          ? "→ The password is in .setup-secrets. KV also holds a temporary copy for overlapping setup runs; delete its first-login key after all setup runs finish."
           : `→ Login password: open KV "${KV_TITLE}", key "first-login", save the password, then delete the key.`);
       } else if (!existing.includes("AUTH_MODE")) {
         // The password exists but AUTH_MODE was removed (a switch to Access and back).
