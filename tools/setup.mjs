@@ -370,16 +370,23 @@ async function main() {
         // KV namespace, not the build log. It is stored before it is set, and one
         // that is already waiting there is reused, so a retry or an overlapping
         // build never ends with a different password than the one published.
-        const kvValues = `/accounts/${account}/storage/kv/namespaces/${kv.id}/values/first-login`;
-        const waiting = workersBuild ? await kvText(kvValues) : "";
-        const password = waiting || randomBytes(18).toString("base64url");
+        let password;
         if (workersBuild) {
+          // Cloud-build passwords may come from KV, so keep this value entirely
+          // out of local file writes. A retry reuses the value already in KV.
+          const kvValues = `/accounts/${account}/storage/kv/namespaces/${kv.id}/values/first-login`;
+          const waiting = await kvText(kvValues);
+          password = waiting || randomBytes(18).toString("base64url");
           if (!waiting) await kvText(kvValues, password);
         } else {
-          // Saved locally first, so a failed upload or a crash can never lose it.
+          // Generate a local-only password and save it before upload, so a failed
+          // upload or a crash can never lose it. No network-derived value reaches
+          // this file write.
+          const localPassword = randomBytes(18).toString("base64url");
           const file = join(root, ".setup-secrets");
-          writeFileSync(file, `ADMIN_PASSWORD=${password}\n`, { mode: 0o600 });
+          writeFileSync(file, `ADMIN_PASSWORD=${localPassword}\\n`, { mode: 0o600 });
           chmodSync(file, 0o600);
+          password = localPassword;
         }
         await wrangler(["secret", "bulk", ...cwd], {
           input: JSON.stringify({ AUTH_MODE: "password", ADMIN_PASSWORD: password }),
