@@ -16,7 +16,7 @@ const NOT_AN_ADDRESS = /^(?:v?\d+(?:\.\d+)*|[a-z]+\.(?:js|ts|mjs|json))$/i;
 const files = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8" })
   .split("\0")
   .filter(
-    (path) => path && !/(?:^|\/)(?:package-lock\.json|pnpm-lock\.yaml|bun\.lock)$/.test(path),
+    (path) => path && !/(?:^|\/)(?:package-lock\.json|bun\.lock)$/.test(path),
   );
 
 const found = [];
