@@ -11,7 +11,7 @@ There are four ways, and they all end in the same app. Pick one.
 | Way | You need | Runs on |
 |---|---|---|
 | [Docker](#docker) | Docker | Your own machine or server |
-| [From your computer](#from-your-computer) | Node.js 22.9 or newer, a Cloudflare account | Cloudflare |
+| [From your computer](#from-your-computer) | Node.js 22.12 or newer, a Cloudflare account | Cloudflare |
 | [GitHub Actions](#github-actions) | A GitHub account, a Cloudflare account | Cloudflare, on every push to `main` |
 | [Cloudflare Workers Builds](#cloudflare-workers-builds) | A GitHub or GitLab account, a Cloudflare account | Cloudflare, on every push to `main` |
 
