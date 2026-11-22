@@ -1,12 +1,16 @@
+
 name: CI
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - main
   merge_group:
-    types: [checks_requested]
-    branches: [main]
+    types:
+      - checks_requested
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -18,32 +22,55 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       id-token: write
+
     steps:
-      - uses: actions/checkout@v7.0.1
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version: 26
-      - run: npm install -g corepack
-      - run: corepack enable
-      - run: pnpm install --frozen-lockfile
+
+      - name: Download latest actionlint
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash \
+            -o "$RUNNER_TEMP/download-actionlint.bash"
+          bash "$RUNNER_TEMP/download-actionlint.bash" latest "$RUNNER_TEMP"
+
+      - name: Lint GitHub Actions workflows
+        run: '"$RUNNER_TEMP/actionlint" -color'
+
+      - name: Install Node.js, npm and pipx from Ubuntu APT
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends nodejs npm pipx
+
+      - name: Install project dependencies
+        run: npm ci --ignore-scripts --legacy-peer-deps
+
       - name: Run tests
         id: tests
         env:
           MERGIFY_TEST_JOB_NAME: test (web)
-        run: pnpm test
+        run: npm test
+
       - name: Mergify CI Upload
         if: (success() || failure()) && hashFiles('junit.xml') != ''
         continue-on-error: true
         env:
           MERGIFY_TEST_JOB_NAME: test (node)
         run: |
-          python3 -m pip install --user mergify-cli==2026.11.8
-          "$HOME/.local/bin/mergify" ci junit-process junit.xml
-      - run: pnpm typecheck
-      - run: sh tools/deploy.sh cloudflare.example.env --dry-run
-      - run: node tools/check-addresses.mjs
+          pipx run --spec mergify-cli==2026.11.8 mergify ci junit-process junit.xml
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Deployment dry run
+        run: sh tools/deploy.sh cloudflare.example.env --dry-run
+
+      - name: Check addresses
+        run: node tools/check-addresses.mjs

@@ -37,12 +37,12 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7.1.0
-        with:
-          node-version: 26
-      - run: corepack enable
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      - name: Install Node.js and npm from Ubuntu APT
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends nodejs npm
+      - run: npm ci --ignore-scripts --legacy-peer-deps
+      - run: npm test
       - run: sh tools/deploy.sh
         # Every name in cloudflare.example.env, read from the repository secrets.
         env:

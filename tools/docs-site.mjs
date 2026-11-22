@@ -24,22 +24,37 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
+  lstatSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { posix, resolve } from "node:path";
+import { posix, resolve, relative, sep } from "node:path";
 
 // --csp-hashes: print the CSP sources ('sha256-...') that allow the inline
 // scripts in the built HTML under <dir>, for a Content-Security-Policy that
 // does not allow inline scripts in general.
 if (process.argv[2] === "--csp-hashes") {
+  const rawRoot = process.argv[3];
+  if (!rawRoot) throw new Error("usage: node tools/docs-site.mjs --csp-hashes <dir>");
+  const cwdRoot = realpathSync(process.cwd());
+  const requestedRoot = resolve(cwdRoot, rawRoot);
+  const scanRoot = realpathSync(requestedRoot);
+  const inside = (root, path) => {
+    const rel = relative(root, path);
+    return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !posix.isAbsolute(rel));
+  };
+  if (!inside(cwdRoot, scanRoot) || !lstatSync(requestedRoot).isDirectory() || lstatSync(requestedRoot).isSymbolicLink()) {
+    throw new Error("--csp-hashes directory must be a real directory inside the current working directory");
+  }
   const hashes = new Set();
   const scan = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) continue;
       const path = posix.join(dir, entry.name);
       if (entry.isDirectory()) scan(path);
-      else if (path.endsWith(".html")) {
+      else if (entry.isFile() && path.endsWith(".html")) {
         for (const [, code] of readFileSync(path, "utf8").matchAll(
           /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g,
         )) {
@@ -48,7 +63,7 @@ if (process.argv[2] === "--csp-hashes") {
       }
     }
   };
-  scan(process.argv[3]);
+  scan(scanRoot);
   console.log([...hashes].sort().join(" "));
   process.exit(0);
 }

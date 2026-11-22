@@ -3,7 +3,7 @@
 // Workflow gets the same env, since the run that creates the monthly .txt
 // sends its e-mail from inside the Workflow.
 import worker, { JobAutomationWorkflow as ProductionWorkflow } from "../apps/web/src/index";
-import { smtpBinding, type SmtpEnv } from "./smtp";
+import { smtpBinding, type SmtpEnv } from "./smtp.mjs";
 
 type Env = Parameters<typeof worker.fetch>[1];
 
