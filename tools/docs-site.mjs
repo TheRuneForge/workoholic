@@ -25,11 +25,7 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
-  lstatSync,
-  openSync,
-  closeSync,
-  fstatSync,
-  constants,
+  globSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -54,43 +50,21 @@ if (process.argv[2] === "--csp-hashes") {
     return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !posix.isAbsolute(rel));
   };
   const hashes = new Set();
-  // Resolve each candidate before opening it, then open the resolved path with
-  // O_NOFOLLOW and verify the descriptor is a regular file. This prevents a
-  // symlink (including one swapped in between enumeration and reading) from
-  // redirecting the CSP scan outside its selected tree.
-  const readHtml = (candidate) => {
+  // globSync receives a fixed pattern and a fixed repository-local root;
+  // no command-line value or directory-entry name is used to build a path.
+  // realpath + containment also excludes symlinks that point outside site-docs.
+  for (const relativeFile of globSync("**/*.html", { cwd: scanRoot })) {
+    const candidate = resolve(scanRoot, relativeFile);
     const resolved = realpathSync(candidate);
-    if (!inside(scanRoot, resolved)) return "";
-    let fd;
-    try {
-      fd = openSync(resolved, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-      if (!fstatSync(fd).isFile()) return "";
-      return readFileSync(fd, "utf8");
-    } catch (error) {
-      if (error.code === "ELOOP" || error.code === "ENOENT" || error.code === "ENOTDIR") return "";
-      throw error;
-    } finally {
-      if (fd !== undefined) closeSync(fd);
+    const rel = relative(scanRoot, resolved);
+    if (rel === ".." || rel.startsWith(`..${sep}`) || posix.isAbsolute(rel)) continue;
+    const html = readFileSync(resolved, "utf8");
+    for (const [, code] of html.matchAll(
+      /<script(?![^>]*\\bsrc=)[^>]*>([\\s\\S]*?)<\\/script>/g,
+    )) {
+      if (code) hashes.add(`'sha256-${createHash("sha256").update(code).digest("base64")}'`);
     }
-  };
-  const scan = (dir) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isSymbolicLink()) continue;
-      const candidate = posix.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        const resolved = realpathSync(candidate);
-        if (inside(scanRoot, resolved) && lstatSync(candidate).isDirectory()) scan(resolved);
-      } else if (entry.isFile() && candidate.endsWith(".html")) {
-        const html = readHtml(candidate);
-        for (const [, code] of html.matchAll(
-          /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g,
-        )) {
-          if (code) hashes.add(`'sha256-${createHash("sha256").update(code).digest("base64")}'`);
-        }
-      }
-    }
-  };
-  scan(scanRoot);
+  }
   console.log([...hashes].sort().join(" "));
   process.exit(0);
 }
