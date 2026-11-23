@@ -102,7 +102,7 @@ Samma sak går att göra för hand under Settings → Secrets and variables → 
 Skapa en Worker med namnet `workoholic` från ditt repo i Cloudflares kontrollpanel (Workers & Pages → Create → Import a repository) och ange:
 
 - Deploy command: `sh tools/deploy.sh`
-- Eller ändra ingenting: med standardkommandot `npm exec -- wrangler deploy` och bygget API-token (den behöver D1: Edit, Workers Scripts: Edit, Workers KV Storage: Edit, Workers R2 Storage: Edit och Secrets Store: Edit) skapar bygget själv D1-databasen, nyckeln i Secrets Store och KV-inställningarna, fyller i platshållarna och kör migreringarna (`postinstall` kör `tools/setup.mjs --workers-build`, bara i Workers Builds av `main`). Workern nås på sin workers.dev-adress med lösenordsinloggning; det genererade lösenordet ligger i KV-namnrymden `workoholic-config`, nyckeln `first-login` (spara det och radera nyckeln). Sätt build-variabeln `PUBLIC_HOST` för att använda din egen domän.
+- Eller ändra ingenting: med standardkommandot `npm exec -- wrangler deploy` och bygget API-token (den behöver D1: Edit, Workers Scripts: Edit, Workers KV Storage: Edit, Workers R2 Storage: Edit och Secrets Store: Edit) skapar bygget själv D1-databasen, nyckeln i Secrets Store och KV-inställningarna, fyller i platshållarna och kör migreringarna (`postinstall` kör `tools/setup.mjs --workers-build`, bara i Workers Builds av `main`). Workern nås på sin workers.dev-adress med lösenordsinloggning; det genererade lösenordet ligger i KV-namnrymden `workoholic-config`, nyckeln `first-login` (spara det och radera nyckeln). Vid första bygget finns Workern ännu inte, så lösenordssteget kan skjutas upp: står `Login secrets were not set this time` i bygglogen, starta ett nytt bygge och läs sedan lösenordet i KV. Sätt build-variabeln `PUBLIC_HOST` för att använda din egen domän.
 - Build variables and secrets: varje namn i tabellen ovan med ditt värde
 - API token: den token du skapade ovan; den token som Cloudflare skapar själv kan varken köra D1-migreringar eller binda Secrets Store
 - Settings → Build → Branch control: stäng av Enable Preview Builds
@@ -142,7 +142,7 @@ Du behöver bara en tillfällig token och ditt domännamn. Resten skapas, fylls 
    npm run setup:cloudflare               # skapar D1, R2 och nyckel, migrerar och deployar
    ```
 
-4. Ett genererat inloggningslösenord hamnar i `.setup-secrets` (bara ägaren kan läsa filen). Spara det och radera filen.
+4. Ett genererat inloggningslösenord hamnar i `.setup-secrets` (bara ägaren kan läsa filen). Spara det och radera filen. KV har också en tillfällig kopia (namnrymd `workoholic-config`, nyckel `first-login`); radera den nyckeln också när alla setup-körningar är klara. Saknas filen efter en avbruten körning ligger lösenordet i den KV-nyckeln.
 5. Koppla repot under Workers & Pages → workoholic → Settings → Builds och kör `npm run setup:cloudflare` igen (tokenet behövs fortfarande). Skriptet sätter då build- och deploy-kommandon själv. Inställningarna (inga hemligheter) lagras i en KV-namnrymd, `workoholic-config`, och bygget läser dem därifrån, så inga build-variabler behövs. Saknas behörigheten **Workers CI: Edit** skriver skriptet i stället ut de två kommandona som ska fyllas i för hand. Kan bygget inte läsa KV finns en reserv med build-variabler i samma utskrift. **Radera den tillfälliga token** i dashboarden först när detta steg är klart.
 
 Skriptet kan köras om utan risk: befintliga resurser återanvänds, och krypteringsnyckeln `WORKOHOLIC_CONFIG_KEY` ersätts aldrig.

@@ -102,7 +102,7 @@ The same can be done by hand under Settings → Secrets and variables → Action
 In the Cloudflare dashboard, create a Worker named `workoholic` from your repository (Workers & Pages → Create → Import a repository) and set:
 
 - Deploy command: `sh tools/deploy.sh`
-- Or change nothing: with the default `npm exec -- wrangler deploy` and the build's API token (it needs D1: Edit, Workers Scripts: Edit, Workers KV Storage: Edit, Workers R2 Storage: Edit and Secrets Store: Edit), the build itself creates the D1 database, the Secrets Store key and the KV settings, fills in the placeholders and applies migrations (`postinstall` runs `tools/setup.mjs --workers-build`, only in Workers Builds of `main`). The Worker is served on its workers.dev address with password login; the generated password is in the KV namespace `workoholic-config`, key `first-login` (save it, then delete the key). Set the build variable `PUBLIC_HOST` to use your own domain instead.
+- Or change nothing: with the default `npm exec -- wrangler deploy` and the build's API token (it needs D1: Edit, Workers Scripts: Edit, Workers KV Storage: Edit, Workers R2 Storage: Edit and Secrets Store: Edit), the build itself creates the D1 database, the Secrets Store key and the KV settings, fills in the placeholders and applies migrations (`postinstall` runs `tools/setup.mjs --workers-build`, only in Workers Builds of `main`). The Worker is served on its workers.dev address with password login; the generated password is in the KV namespace `workoholic-config`, key `first-login` (save it, then delete the key). On the first build the Worker does not exist yet, so the password step can be deferred: if the build log says `Login secrets were not set this time`, start another build, then read the password from KV. Set the build variable `PUBLIC_HOST` to use your own domain instead.
 - Build variables and secrets: every name from the table above with your value
 - API token: the token you created above; the token Cloudflare creates by itself cannot apply D1 migrations or bind the Secrets Store
 - Settings → Build → Branch control: turn off Enable Preview Builds
@@ -142,7 +142,7 @@ All you need is a temporary token and your domain name. A script creates the res
    npm run setup:cloudflare               # creates D1, R2 and the key, migrates and deploys
    ```
 
-4. A generated sign-in password is written to `.setup-secrets` (readable by the owner only). Save it and delete the file.
+4. A generated sign-in password is written to `.setup-secrets` (readable by the owner only). Save it and delete the file. KV also holds a temporary copy (namespace `workoholic-config`, key `first-login`); delete that key too once all setup runs have finished. If the file is missing after an interrupted run, the password is in that KV key.
 5. Connect the repo under Workers & Pages → workoholic → Settings → Builds and run `npm run setup:cloudflare` again (the token is still needed). The script then sets the build and deploy commands itself. The settings (no secrets) are stored in a KV namespace, `workoholic-config`, and the build reads them from there, so no build variables are needed. Without the **Workers CI: Edit** permission the script prints the two commands to fill in by hand instead. If the build cannot read KV, the same output has a fallback with build variables. **Delete the temporary token** in the dashboard only once this step is done.
 
 The script is safe to run again: existing resources are reused, and the encryption key `WORKOHOLIC_CONFIG_KEY` is never replaced.
