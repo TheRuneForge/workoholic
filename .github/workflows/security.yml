@@ -5,6 +5,9 @@ on:
     branches: [main, 'security/**']
   pull_request:
     branches: [main]
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
   schedule:
     - cron: "53 4 * * 1"
   workflow_dispatch:
@@ -177,7 +180,7 @@ jobs:
       - name: Upload Semgrep results
         id: upload_semgrep
         if: ${{ !cancelled() && steps.checkout_source.outcome == 'success' && needs.semgrep.result == 'success' }}
-        uses: github/codeql-action/upload-sarif@v4.39.3
+        uses: github/codeql-action/upload-sarif@v4.39.4
         with:
           sarif_file: ${{ runner.temp }}/sarif-artifacts/semgrep.sarif
           checkout_path: ${{ github.workspace }}
@@ -203,7 +206,7 @@ jobs:
       - name: Upload Trivy results
         id: upload_trivy
         if: ${{ !cancelled() && steps.checkout_source.outcome == 'success' && needs.trivy.result == 'success' }}
-        uses: github/codeql-action/upload-sarif@v4.39.3
+        uses: github/codeql-action/upload-sarif@v4.39.4
         with:
           sarif_file: ${{ runner.temp }}/sarif-artifacts/trivy.sarif
           checkout_path: ${{ github.workspace }}
