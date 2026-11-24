@@ -21,7 +21,6 @@
 import {
   cpSync,
   existsSync,
-  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -46,13 +45,22 @@ const assertWithin = (path, root, label, allowRoot = false) => {
   }
 };
 
-const findExistingAncestor = (absolute) => {
+const findExistingAncestor = (absolute, root, label, allowRoot = false) => {
+  const rel = relative(root, absolute);
+  if (
+    (!allowRoot && rel === "") ||
+    rel === ".." ||
+    rel.startsWith(`..${sep}`) ||
+    isAbsolute(rel)
+  ) {
+    throw new Error(`${label} must be within the current working directory`);
+  }
   let existing = absolute;
   const missing = [];
   while (true) {
     try {
-      lstatSync(existing);
-      return { existing, missing };
+      const canonicalExisting = realpathSync.native(existing);
+      return { canonicalExisting, missing };
     } catch (error) {
       if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
       const parent = dirname(existing);
@@ -68,10 +76,9 @@ const findExistingAncestor = (absolute) => {
 // the original symlinked ancestors.
 const resolveWithin = (root, candidate, label, allowRoot = false) => {
   const absolute = resolve(root, candidate);
-  assertWithin(absolute, root, label, allowRoot);
-  const { existing, missing } = findExistingAncestor(absolute);
+  const { canonicalExisting, missing } = findExistingAncestor(absolute, root, label, allowRoot);
   const canonicalRoot = realpathSync.native(root);
-  const canonical = resolve(realpathSync.native(existing), ...missing);
+  const canonical = resolve(canonicalExisting, ...missing);
   assertWithin(canonical, canonicalRoot, label, allowRoot);
   if (relative(absolute, canonical) !== "") {
     throw new Error(`${label} must not traverse symbolic links`);
