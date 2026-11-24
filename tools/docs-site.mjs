@@ -38,20 +38,18 @@ const isWithin = (path, root) => {
 };
 
 const assertWithin = (path, root, label, allowRoot = false) => {
-  const rel = relative(root, path);
-  if (rel === "" && allowRoot) return;
-  if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+  const rootPrefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  if (path === root && allowRoot) return;
+  if (path === root || !path.startsWith(rootPrefix)) {
     throw new Error(`${label} must be within the current working directory`);
   }
 };
 
 const findExistingAncestor = (absolute, root, label, allowRoot = false) => {
-  const rel = relative(root, absolute);
+  const rootPrefix = root.endsWith(sep) ? root : `${root}${sep}`;
   if (
-    (!allowRoot && rel === "") ||
-    rel === ".." ||
-    rel.startsWith(`..${sep}`) ||
-    isAbsolute(rel)
+    (absolute === root && !allowRoot) ||
+    (absolute !== root && !absolute.startsWith(rootPrefix))
   ) {
     throw new Error(`${label} must be within the current working directory`);
   }
