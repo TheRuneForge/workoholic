@@ -21,25 +21,74 @@
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { posix } from "node:path";
+import { basename, dirname, isAbsolute, posix, relative, resolve, sep } from "node:path";
+
+const isWithin = (path, root) => {
+  const rel = relative(root, path);
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+};
+
+// Resolve the nearest existing ancestor through the filesystem before using a
+// destination. Return its canonical path so later filesystem calls do not traverse
+// the original symlinked ancestors.
+const resolveWithin = (root, candidate, label) => {
+  const absolute = resolve(root, candidate);
+  const lexicalRelative = relative(root, absolute);
+  if (
+    lexicalRelative === "" ||
+    lexicalRelative === ".." ||
+    lexicalRelative.startsWith(`..${sep}`) ||
+    isAbsolute(lexicalRelative)
+  ) {
+    throw new Error(`${label} must be within the current working directory`);
+  }
+  let existing = absolute;
+  const missing = [];
+  while (true) {
+    try {
+      lstatSync(existing);
+      break;
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
+      const parent = dirname(existing);
+      if (parent === existing) throw error;
+      missing.unshift(basename(existing));
+      existing = parent;
+    }
+  }
+  const canonicalRoot = realpathSync.native(root);
+  const canonical = resolve(realpathSync.native(existing), ...missing);
+  if (!isWithin(canonical, canonicalRoot)) {
+    throw new Error(`${label} must be within the current working directory`);
+  }
+  if (relative(absolute, canonical) !== "") {
+    throw new Error(`${label} must not traverse symbolic links`);
+  }
+  return canonical;
+};
 
 // --csp-hashes: print the CSP sources ('sha256-...') that allow the inline
 // scripts in the built HTML under <dir>, for a Content-Security-Policy that
 // does not allow inline scripts in general.
 if (process.argv[2] === "--csp-hashes") {
+  const root = realpathSync.native(process.cwd());
+  const scanRoot = resolveWithin(root, process.argv[3] ?? "", "scan directory");
   const hashes = new Set();
   const scan = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = posix.join(dir, entry.name);
       if (entry.isDirectory()) scan(path);
-      else if (path.endsWith(".html")) {
+      else if (entry.isFile() && path.endsWith(".html")) {
         for (const [, code] of readFileSync(path, "utf8").matchAll(
           /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g,
         )) {
@@ -48,18 +97,33 @@ if (process.argv[2] === "--csp-hashes") {
       }
     }
   };
-  scan(process.argv[3]);
+  scan(scanRoot);
   console.log([...hashes].sort().join(" "));
   process.exit(0);
 }
 
 const wiki = process.argv[2] === "--wiki";
-const out = wiki ? process.argv[3] : "site-docs";
-if (!out) throw new Error("usage: node tools/docs-site.mjs [--wiki <dir>]");
-const cwd = posix.resolve(process.cwd());
-const resolvedOut = posix.resolve(cwd, out);
-if (resolvedOut !== cwd && !resolvedOut.startsWith(`${cwd}/`)) {
-  throw new Error("output directory must be within the current working directory");
+const outArg = wiki ? process.argv[3] : "site-docs";
+if (!outArg) throw new Error("usage: node tools/docs-site.mjs [--wiki <dir>]");
+const root = realpathSync.native(process.cwd());
+const out = resolveWithin(root, outArg, "output directory");
+if (existsSync(out) && !statSync(out).isDirectory()) {
+  throw new Error("output path must be a directory");
+}
+const protectedRoots = [
+  ".claude",
+  ".github",
+  "apps",
+  "docker",
+  "docs",
+  "migrations",
+  "node_modules",
+  "packages",
+  "test",
+  "tools",
+].map((path) => resolve(root, path));
+if (protectedRoots.some((path) => out === path || isWithin(out, path))) {
+  throw new Error("output directory must not overlap source directories");
 }
 const config = readFileSync("zensical.toml", "utf8");
 const repoUrl = config.match(/^repo_url\s*=\s*"([^"]+)"/m)?.[1];
@@ -124,12 +188,12 @@ const rewrite = (src, dst, text) => {
     .join("\n");
 };
 
-rmSync(resolvedOut, { recursive: true, force: true });
-mkdirSync(resolvedOut, { recursive: true });
+rmSync(out, { recursive: true, force: true });
+mkdirSync(out, { recursive: true });
 let count = 0;
 for (const [src, dst] of pages) {
   if (wiki && !onWiki(dst)) continue;
-  const target = posix.join(resolvedOut, wiki ? `${wikiName(dst)}.md` : dst);
+  const target = posix.join(out, wiki ? `${wikiName(dst)}.md` : dst);
   mkdirSync(posix.dirname(target), { recursive: true });
   if (src.endsWith(".md")) writeFileSync(target, rewrite(src, dst, readFileSync(src, "utf8")));
   else cpSync(src, target);
@@ -143,12 +207,12 @@ if (wiki) {
       return `- [${page.startsWith("eng/") ? `English: ${title}` : title}](${wikiName(page)})`;
     });
   writeFileSync(
-    posix.join(resolvedOut, "_Sidebar.md"),
+    posix.join(out, "_Sidebar.md"),
     [...menu, `- [Källkod på GitHub](${repoUrl}#readme)`, ""].join("\n"),
   );
   writeFileSync(
-    posix.join(resolvedOut, "_Footer.md"),
+    posix.join(out, "_Footer.md"),
     `Wikin speglas automatiskt från [repot](${repoUrl}) (\`README.md\`, \`docker/README.md\` och \`docs/\`) vid varje merge till \`main\`. Ändra där; ändringar här skrivs över.\n`,
   );
 }
-console.log(`${resolvedOut}/: ${count} pages`);
+console.log(`${out}/: ${count} pages`);
