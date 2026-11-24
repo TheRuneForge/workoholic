@@ -184,14 +184,14 @@ test("refuses to remove Git metadata as the output directory", (t) => {
 test("protects canonical destinations of symlinked source directories", (t) => {
   const root = fixture();
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  mkdirSync(join(root, "content"));
-  writeFileSync(join(root, "content/guide.md"), "# Guide");
-  symlinkSync(join(root, "content"), join(root, "docs"), "dir");
+  mkdirSync(join(root, "content/source"), { recursive: true });
+  writeFileSync(join(root, "content/source/guide.md"), "# Guide");
+  symlinkSync(join(root, "content/source"), join(root, "docs"), "dir");
 
   const result = run(root, "--wiki", "content");
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /must not overlap source directories/);
-  assert.equal(readFileSync(join(root, "content/guide.md"), "utf8"), "# Guide");
+  assert.equal(readFileSync(join(root, "content/source/guide.md"), "utf8"), "# Guide");
 });
 
 test("refuses to replace a symlink used as the output directory", (t) => {
