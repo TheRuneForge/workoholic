@@ -41,11 +41,11 @@ const isWithin = (path, root) => {
 // Resolve the nearest existing ancestor through the filesystem before using a
 // destination. Return its canonical path so later filesystem calls do not traverse
 // the original symlinked ancestors.
-const resolveWithin = (root, candidate, label) => {
+const resolveWithin = (root, candidate, label, allowRoot = false) => {
   const absolute = resolve(root, candidate);
   const lexicalRelative = relative(root, absolute);
   if (
-    lexicalRelative === "" ||
+    (!allowRoot && lexicalRelative === "") ||
     lexicalRelative === ".." ||
     lexicalRelative.startsWith(`..${sep}`) ||
     isAbsolute(lexicalRelative)
@@ -68,7 +68,10 @@ const resolveWithin = (root, candidate, label) => {
   }
   const canonicalRoot = realpathSync.native(root);
   const canonical = resolve(realpathSync.native(existing), ...missing);
-  if (!isWithin(canonical, canonicalRoot)) {
+  if (canonical !== canonicalRoot && !isWithin(canonical, canonicalRoot)) {
+    throw new Error(`${label} must be within the current working directory`);
+  }
+  if (canonical === canonicalRoot && !allowRoot) {
     throw new Error(`${label} must be within the current working directory`);
   }
   if (relative(absolute, canonical) !== "") {
@@ -82,7 +85,7 @@ const resolveWithin = (root, candidate, label) => {
 // does not allow inline scripts in general.
 if (process.argv[2] === "--csp-hashes") {
   const root = realpathSync.native(process.cwd());
-  const scanRoot = resolveWithin(root, process.argv[3] ?? "", "scan directory");
+  const scanRoot = resolveWithin(root, process.argv[3] ?? "", "scan directory", true);
   const hashes = new Set();
   const scan = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

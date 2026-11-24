@@ -119,6 +119,17 @@ test("CSP scanning ignores symlinked HTML files", (t) => {
   assert.ok(!result.stdout.includes(outsideHash));
 });
 
+test("CSP scanning can scan the workspace root", (t) => {
+  const root = fixture();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(join(root, "index.html"), "<script>root()</script>");
+
+  const result = run(root, "--csp-hashes", ".");
+  assert.equal(result.status, 0, result.stderr);
+  const rootHash = createHash("sha256").update("root()").digest("base64");
+  assert.ok(result.stdout.includes(rootHash));
+});
+
 test("CSP scanning rejects a directory outside the workspace", (t) => {
   const root = fixture();
   const outside = mkdtempSync(join(tmpdir(), "docs-site-csp-outside-"));
