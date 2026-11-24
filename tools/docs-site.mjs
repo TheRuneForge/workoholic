@@ -21,6 +21,7 @@
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -73,7 +74,23 @@ const findExistingAncestor = (absolute, root, label, allowRoot = false) => {
 // destination. Return its canonical path so later filesystem calls do not traverse
 // the original symlinked ancestors.
 const resolveWithin = (root, candidate, label, allowRoot = false) => {
+  if (candidate.split(/[\\/]/).includes("..")) {
+    throw new Error(`${label} must not contain parent-directory segments`);
+  }
   const absolute = resolve(root, candidate);
+  assertWithin(absolute, root, label, allowRoot);
+  let current = root;
+  for (const component of relative(root, absolute).split(sep).filter(Boolean)) {
+    current = resolve(current, component);
+    try {
+      if (lstatSync(current).isSymbolicLink()) {
+        throw new Error(`${label} must not traverse symbolic links`);
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
+      break;
+    }
+  }
   const { canonicalExisting, missing } = findExistingAncestor(absolute, root, label, allowRoot);
   const canonicalRoot = realpathSync.native(root);
   const canonical = resolve(canonicalExisting, ...missing);
