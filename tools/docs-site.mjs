@@ -132,7 +132,8 @@ if (process.argv[2] === "--csp-hashes") {
 
 const wiki = process.argv[2] === "--wiki";
 const outArg = wiki ? process.argv[3] : "site-docs";
-if (!outArg) throw new Error("usage: node tools/docs-site.mjs [--wiki <dir>]");
+if (!outArg || !outArg.trim()) throw new Error("usage: node tools/docs-site.mjs [--wiki <dir>]");
+if (outArg.includes("\0")) throw new Error("output directory contains invalid null byte");
 const root = realpathSync.native(process.cwd());
 const out = resolveWithin(root, outArg, "output directory");
 if (existsSync(out) && !statSync(out).isDirectory()) {
