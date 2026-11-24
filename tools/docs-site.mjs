@@ -21,25 +21,62 @@
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { posix, resolve } from "node:path";
+import { basename, dirname, isAbsolute, posix, relative, resolve, sep } from "node:path";
+
+const isWithin = (path, root) => {
+  const rel = relative(root, path);
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+};
+
+// Resolve the nearest existing ancestor through the filesystem before using a
+// destination. Return its canonical path so later filesystem calls do not traverse
+// the original symlinked ancestors.
+const resolveWithin = (root, candidate, label) => {
+  const absolute = resolve(root, candidate);
+  let existing = absolute;
+  const missing = [];
+  while (true) {
+    try {
+      lstatSync(existing);
+      break;
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
+      const parent = dirname(existing);
+      if (parent === existing) throw error;
+      missing.unshift(basename(existing));
+      existing = parent;
+    }
+  }
+  const canonicalRoot = realpathSync.native(root);
+  const canonical = resolve(realpathSync.native(existing), ...missing);
+  if (!isWithin(canonical, canonicalRoot)) {
+    throw new Error(`${label} must be within the current working directory`);
+  }
+  return canonical;
+};
 
 // --csp-hashes: print the CSP sources ('sha256-...') that allow the inline
 // scripts in the built HTML under <dir>, for a Content-Security-Policy that
 // does not allow inline scripts in general.
 if (process.argv[2] === "--csp-hashes") {
+  const root = realpathSync.native(process.cwd());
+  const scanRoot = resolveWithin(root, process.argv[3] ?? "", "scan directory");
   const hashes = new Set();
   const scan = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = posix.join(dir, entry.name);
       if (entry.isDirectory()) scan(path);
-      else if (path.endsWith(".html")) {
+      else if (entry.isFile() && path.endsWith(".html")) {
         for (const [, code] of readFileSync(path, "utf8").matchAll(
           /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g,
         )) {
@@ -48,7 +85,7 @@ if (process.argv[2] === "--csp-hashes") {
       }
     }
   };
-  scan(process.argv[3]);
+  scan(scanRoot);
   console.log([...hashes].sort().join(" "));
   process.exit(0);
 }
@@ -56,10 +93,14 @@ if (process.argv[2] === "--csp-hashes") {
 const wiki = process.argv[2] === "--wiki";
 const outArg = wiki ? process.argv[3] : "site-docs";
 if (!outArg) throw new Error("usage: node tools/docs-site.mjs [--wiki <dir>]");
-const root = resolve(process.cwd());
-const out = resolve(root, outArg);
-if (out !== root && !out.startsWith(`${root}/`)) {
-  throw new Error("output directory must be within the current working directory");
+const root = realpathSync.native(process.cwd());
+const requestedOut = resolve(root, outArg);
+if (existsSync(requestedOut) && lstatSync(requestedOut).isSymbolicLink()) {
+  throw new Error("output path must not be a symbolic link");
+}
+const out = resolveWithin(root, outArg, "output directory");
+if (existsSync(out) && !statSync(out).isDirectory()) {
+  throw new Error("output path must be a directory");
 }
 const config = readFileSync("zensical.toml", "utf8");
 const repoUrl = config.match(/^repo_url\s*=\s*"([^"]+)"/m)?.[1];
