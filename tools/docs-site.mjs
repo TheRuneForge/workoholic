@@ -133,7 +133,7 @@ const protectedRoots = [
   const absolute = resolve(root, path);
   return existsSync(absolute) ? [absolute, realpathSync.native(absolute)] : [absolute];
 });
-if (protectedRoots.some((path) => out === path || isWithin(out, path))) {
+if (protectedRoots.some((path) => out === path || isWithin(out, path) || isWithin(path, out))) {
   throw new Error("output directory must not overlap source directories");
 }
 const config = readFileSync("zensical.toml", "utf8");
