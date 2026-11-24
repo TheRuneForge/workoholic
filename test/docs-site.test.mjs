@@ -132,6 +132,23 @@ test("CSP scanning rejects a directory outside the workspace", (t) => {
   assert.match(result.stderr, /within the current working directory/);
 });
 
+test("refuses to remove source directories as output targets", (t) => {
+  const root = fixture();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "docs"));
+  mkdirSync(join(root, "apps"));
+  writeFileSync(join(root, "docs/guide.md"), "# Guide");
+  writeFileSync(join(root, "apps/index.ts"), "export {}");
+
+  for (const output of ["docs", "docs/generated", "apps", "tools"]) {
+    const result = run(root, "--wiki", output);
+    assert.notEqual(result.status, 0, output);
+    assert.match(result.stderr, /must not overlap source directories/);
+  }
+  assert.equal(readFileSync(join(root, "docs/guide.md"), "utf8"), "# Guide");
+  assert.equal(readFileSync(join(root, "apps/index.ts"), "utf8"), "export {}");
+});
+
 test("refuses to replace a symlink used as the output directory", (t) => {
   const root = fixture();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -141,7 +158,7 @@ test("refuses to replace a symlink used as the output directory", (t) => {
 
   const result = run(root, "--wiki", "linked");
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /must not be a symbolic link/);
+  assert.match(result.stderr, /must not traverse symbolic links/);
   assert.equal(readFileSync(join(root, "existing/keep.txt"), "utf8"), "keep");
   assert.ok(existsSync(join(root, "linked")));
 });

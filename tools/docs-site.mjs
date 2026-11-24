@@ -43,6 +43,15 @@ const isWithin = (path, root) => {
 // the original symlinked ancestors.
 const resolveWithin = (root, candidate, label) => {
   const absolute = resolve(root, candidate);
+  const lexicalRelative = relative(root, absolute);
+  if (
+    lexicalRelative === "" ||
+    lexicalRelative === ".." ||
+    lexicalRelative.startsWith(`..${sep}`) ||
+    isAbsolute(lexicalRelative)
+  ) {
+    throw new Error(`${label} must be within the current working directory`);
+  }
   let existing = absolute;
   const missing = [];
   while (true) {
@@ -61,6 +70,9 @@ const resolveWithin = (root, candidate, label) => {
   const canonical = resolve(realpathSync.native(existing), ...missing);
   if (!isWithin(canonical, canonicalRoot)) {
     throw new Error(`${label} must be within the current working directory`);
+  }
+  if (relative(absolute, canonical) !== "") {
+    throw new Error(`${label} must not traverse symbolic links`);
   }
   return canonical;
 };
@@ -94,13 +106,24 @@ const wiki = process.argv[2] === "--wiki";
 const outArg = wiki ? process.argv[3] : "site-docs";
 if (!outArg) throw new Error("usage: node tools/docs-site.mjs [--wiki <dir>]");
 const root = realpathSync.native(process.cwd());
-const requestedOut = resolve(root, outArg);
-if (existsSync(requestedOut) && lstatSync(requestedOut).isSymbolicLink()) {
-  throw new Error("output path must not be a symbolic link");
-}
 const out = resolveWithin(root, outArg, "output directory");
 if (existsSync(out) && !statSync(out).isDirectory()) {
   throw new Error("output path must be a directory");
+}
+const protectedRoots = [
+  ".claude",
+  ".github",
+  "apps",
+  "docker",
+  "docs",
+  "migrations",
+  "node_modules",
+  "packages",
+  "test",
+  "tools",
+].map((path) => resolve(root, path));
+if (protectedRoots.some((path) => out === path || isWithin(out, path))) {
+  throw new Error("output directory must not overlap source directories");
 }
 const config = readFileSync("zensical.toml", "utf8");
 const repoUrl = config.match(/^repo_url\s*=\s*"([^"]+)"/m)?.[1];
