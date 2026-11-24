@@ -14,6 +14,7 @@ queue_rules:
     merge_conditions:
       - base = main
       - check-success = test
+      - "#approved-reviews-by >= 2"
 
 priority_rules:
   - name: security-updates
@@ -29,3 +30,36 @@ pull_request_rules:
       - -draft
     actions:
       queue:
+
+  - name: Keep PRs up to date
+    conditions:
+      - -draft
+      - "#commits-behind >= 1"
+    actions:
+      update:
+
+  - name: Request reviews automatically
+    conditions:
+      - -draft
+      - "#review-requested = 0"
+    actions:
+      request_reviews:
+        teams:
+          - ai
+
+  - name: Label web app changes
+    conditions:
+      - files ~= ^apps/web/
+    actions:
+      label:
+        add:
+          - area/frontend
+
+  - name: Label documentation changes
+    conditions:
+      - files ~= ^docs/
+    actions:
+      label:
+        add:
+          - documentation
+          - area/docs
