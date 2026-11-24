@@ -119,6 +119,15 @@ test("CSP scanning ignores symlinked HTML files", (t) => {
   assert.ok(!result.stdout.includes(outsideHash));
 });
 
+test("CSP scanning requires an explicit directory argument", (t) => {
+  const root = fixture();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  const result = run(root, "--csp-hashes");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /scan directory is required/);
+});
+
 test("CSP scanning can scan the workspace root", (t) => {
   const root = fixture();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -158,6 +167,31 @@ test("refuses to remove source directories as output targets", (t) => {
   }
   assert.equal(readFileSync(join(root, "docs/guide.md"), "utf8"), "# Guide");
   assert.equal(readFileSync(join(root, "apps/index.ts"), "utf8"), "export {}");
+});
+
+test("refuses to remove Git metadata as the output directory", (t) => {
+  const root = fixture();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, ".git"));
+  writeFileSync(join(root, ".git/keep"), "repository metadata");
+
+  const result = run(root, "--wiki", ".git");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /must not overlap source directories/);
+  assert.equal(readFileSync(join(root, ".git/keep"), "utf8"), "repository metadata");
+});
+
+test("protects canonical destinations of symlinked source directories", (t) => {
+  const root = fixture();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "content"));
+  writeFileSync(join(root, "content/guide.md"), "# Guide");
+  symlinkSync(join(root, "content"), join(root, "docs"), "dir");
+
+  const result = run(root, "--wiki", "content");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /must not overlap source directories/);
+  assert.equal(readFileSync(join(root, "content/guide.md"), "utf8"), "# Guide");
 });
 
 test("refuses to replace a symlink used as the output directory", (t) => {
