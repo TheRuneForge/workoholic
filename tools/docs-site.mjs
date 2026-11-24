@@ -85,7 +85,11 @@ const resolveWithin = (root, candidate, label, allowRoot = false) => {
 // does not allow inline scripts in general.
 if (process.argv[2] === "--csp-hashes") {
   const root = realpathSync.native(process.cwd());
-  const scanRoot = resolveWithin(root, process.argv[3] ?? "", "scan directory", true);
+  const scanArg = process.argv[3];
+  if (!scanArg || !scanArg.trim()) {
+    throw new Error("scan directory is required");
+  }
+  const scanRoot = resolveWithin(root, scanArg, "scan directory", true);
   const hashes = new Set();
   const scan = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -116,6 +120,7 @@ if (existsSync(out) && !statSync(out).isDirectory()) {
 const protectedRoots = [
   ".claude",
   ".github",
+  ".git",
   "apps",
   "docker",
   "docs",
@@ -124,7 +129,10 @@ const protectedRoots = [
   "packages",
   "test",
   "tools",
-].map((path) => resolve(root, path));
+].flatMap((path) => {
+  const absolute = resolve(root, path);
+  return existsSync(absolute) ? [absolute, realpathSync.native(absolute)] : [absolute];
+});
 if (protectedRoots.some((path) => out === path || isWithin(out, path))) {
   throw new Error("output directory must not overlap source directories");
 }
