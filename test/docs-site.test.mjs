@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -50,7 +51,10 @@ test("refuses the workspace itself, including a normalized missing/.. path", (t)
   for (const output of [".", "missing-component/.."]) {
     const result = run(root, "--wiki", output);
     assert.notEqual(result.status, 0, output);
-    assert.match(result.stderr, /within the current working directory/);
+    assert.match(
+      result.stderr,
+      output === "." ? /within the current working directory/ : /parent-directory segments/,
+    );
     assert.equal(readFileSync(marker, "utf8"), "keep");
   }
 });
@@ -94,9 +98,28 @@ test("rejects output paths whose existing ancestor is a symlink outside the work
 
   const result = run(root, "--wiki", "linked/generated");
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /within the current working directory/);
+  assert.match(result.stderr, /within the current working directory|must not traverse symbolic links/);
   assert.equal(readFileSync(join(outside, "keep.txt"), "utf8"), "keep");
   assert.equal(existsSync(join(outside, "generated")), false);
+});
+
+test("rejects output paths containing parent segments before normalization", (t) => {
+  const root = fixture();
+  const outside = mkdtempSync(join(tmpdir(), "docs-site-parent-segment-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+  mkdirSync(join(root, "generated"));
+  writeFileSync(join(root, "generated/keep.txt"), "keep");
+  symlinkSync(outside, join(root, "linked"), "dir");
+
+  for (const output of ["linked/../generated", "linked\\..\\generated"]) {
+    const result = run(root, "--wiki", output);
+    assert.notEqual(result.status, 0, output);
+    assert.match(result.stderr, /must not contain parent-directory segments/);
+    assert.equal(readFileSync(join(root, "generated/keep.txt"), "utf8"), "keep");
+  }
 });
 
 test("CSP scanning ignores symlinked HTML files", (t) => {
@@ -194,16 +217,20 @@ test("protects canonical destinations of symlinked source directories", (t) => {
   assert.equal(readFileSync(join(root, "content/source/guide.md"), "utf8"), "# Guide");
 });
 
-test("refuses to replace a symlink used as the output directory", (t) => {
+test("refuses to replace symlink output paths, including dangling symlinks", (t) => {
   const root = fixture();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, "existing"));
   writeFileSync(join(root, "existing/keep.txt"), "keep");
   symlinkSync(join(root, "existing"), join(root, "linked"), "dir");
+  symlinkSync(join(root, "missing-target"), join(root, "dangling"), "dir");
 
-  const result = run(root, "--wiki", "linked");
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /must not traverse symbolic links/);
+  for (const output of ["linked", "dangling", "dangling/generated"]) {
+    const result = run(root, "--wiki", output);
+    assert.notEqual(result.status, 0, output);
+    assert.match(result.stderr, /must not traverse symbolic links/);
+  }
+  assert.ok(lstatSync(join(root, "linked")).isSymbolicLink());
+  assert.ok(lstatSync(join(root, "dangling")).isSymbolicLink());
   assert.equal(readFileSync(join(root, "existing/keep.txt"), "utf8"), "keep");
-  assert.ok(existsSync(join(root, "linked")));
 });
