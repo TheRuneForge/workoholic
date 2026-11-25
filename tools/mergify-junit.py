@@ -1,44 +1,44 @@
 #!/usr/bin/env python3
-"""Wrap Node.js's built-in JUnit output in a standard JUnit testsuite."""
+"""Wrap Node.js built-in JUnit test cases in a standard JUnit testsuite."""
 
 from pathlib import Path
-import re
+import xml.etree.ElementTree as ET
 
 
 def main() -> None:
+    # The report path is deliberately fixed: never accept a path from test data
+    # or a command-line argument in this CI helper.
     report = Path("junit.xml")
-    xml = report.read_text(encoding="utf-8")
+    parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+    tree = ET.parse(report, parser=parser)
+    root = tree.getroot()
 
-    opening = re.search(r"<testsuites(?:\s[^>]*)?>", xml)
-    closing = xml.rfind("</testsuites>")
-    if opening is None or closing < opening.end():
-        raise SystemExit(f"{report}: expected a <testsuites> root element")
+    if root.tag == "testsuite":
+        return
+    if root.tag != "testsuites":
+        raise SystemExit(f"{report}: expected <testsuites> or <testsuite>, got <{root.tag}>")
 
-    content = xml[opening.end() : closing]
-    if re.search(r"<testsuite\b", content):
+    # Node's reporter puts test cases directly under <testsuites>. Keep any
+    # existing suites and diagnostic comments intact, and wrap only direct
+    # test-case children (not nested cases or tag-like text in comments).
+    cases = root.findall("testcase")
+    if not cases:
         return
 
-    def count(tag: str) -> int:
-        return len(re.findall(rf"<{tag}(?:\s|/?>)", content))
+    suite = ET.Element("testsuite", name="node:test")
+    for case in cases:
+        root.remove(case)
+        suite.append(case)
 
-    tests = count("testcase")
-    if tests == 0:
-        raise SystemExit(f"{report}: no <testcase> or <testsuite> entries found")
+    suite.set("tests", str(len(cases)))
+    suite.set("failures", str(sum(case.find("failure") is not None for case in cases)))
+    suite.set("errors", str(sum(case.find("error") is not None for case in cases)))
+    suite.set("skipped", str(sum(case.find("skipped") is not None for case in cases)))
+    suite.set("time", f"{sum(float(case.get('time', '0')) for case in cases):.6f}")
+    root.insert(0, suite)
 
-    attributes = (
-        f'name="node:test" tests="{tests}" '
-        f'failures="{count("failure")}" errors="{count("error")}" '
-        f'skipped="{count("skipped")}"'
-    )
-    normalized = (
-        xml[: opening.end()]
-        + f"<testsuite {attributes}>"
-        + content
-        + "</testsuite>"
-        + xml[closing:]
-    )
-    report.write_text(normalized, encoding="utf-8")
-    print(f"Normalized {report}: {tests} Node.js test cases")
+    tree.write(report, encoding="utf-8", xml_declaration=True)
+    print(f"Normalized {report}: {len(cases)} Node.js test cases")
 
 
 if __name__ == "__main__":

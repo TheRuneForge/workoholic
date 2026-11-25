@@ -2,20 +2,19 @@
 
 Applies for jobs on your behalf at StudentConsulting, at most ten per calendar month, and collects them in a text file. The app is a Cloudflare Worker with D1, R2, Workflows and Browser Rendering, organised as an npm workspace: `apps/web`, `packages/core` and `packages/studentconsulting`.
 
-All settings are `__NAME__` placeholders, so nothing specific to an environment is committed: your own values stay in a file git ignores, in GitHub Actions secrets or in Cloudflare build variables. Your StudentConsulting sign-in and the other secrets are entered in the app and stored encrypted.
+All environment-specific settings are `__NAME__` placeholders. With Cloudflare Workers Builds, the install step discovers resource IDs and other settings through the Worker's Build token, stores non-secret values in KV, and fills in `wrangler.jsonc` before deployment. For local Wrangler deployments, use your own git-ignored values file. Your StudentConsulting sign-in and other secrets are entered in the app and stored encrypted.
 
 ## Run your own copy
 
-There are four ways, and they all end in the same app. Pick one.
+There are three ways, and they all end in the same app. Pick one.
 
 | Way | You need | Runs on |
 |---|---|---|
 | [Docker](#docker) | Docker | Your own machine or server |
 | [From your computer](#from-your-computer) | Node.js 22.12 or newer, a Cloudflare account | Cloudflare |
-| [GitHub Actions](#github-actions) | A GitHub account, a Cloudflare account | Cloudflare, on every push to `main` |
 | [Cloudflare Workers Builds](#cloudflare-workers-builds) | A GitHub or GitLab account, a Cloudflare account | Cloudflare, on every push to `main` |
 
-A GitHub account is only needed for the last two. For the first two, download the source as a ZIP file or clone it.
+A GitHub account is needed for Workers Builds. For Docker and local Wrangler, download the source as a ZIP file or clone it.
 
 ### Docker
 
@@ -29,7 +28,7 @@ The port is published on this machine only. To reach the app from other machines
 
 ### Your values on Cloudflare
 
-The three Cloudflare ways use the same values. They are listed in `cloudflare.example.env`:
+The values in `cloudflare.example.env` are used for local Wrangler deployments. Workers Builds automatically discovers the corresponding resource values from Cloudflare during installation.
 
 | Name | Value |
 |---|---|
@@ -87,27 +86,15 @@ sh tools/deploy.sh .cloudflare.env
 
 Run the last command again whenever you want to deploy a newer version. `tools/deploy.sh` fills the values into a temporary copy, applies new database migrations, deploys the copy and removes it. Extra arguments go to `wrangler deploy`; `sh tools/deploy.sh .cloudflare.env --dry-run` builds without touching the database or uploading. If `.cloudflare.env` also has the lines `CLOUDFLARE_API_TOKEN=...` and `CLOUDFLARE_ACCOUNT_ID=...`, they are used and `wrangler login` is not needed; if either of the two is already exported in your shell, that value wins over the file.
 
-### GitHub Actions
-
-Fork the repo, or push a copy to your own account. Fill in `.cloudflare.env` as above and add the lines `CLOUDFLARE_API_TOKEN=...` and `CLOUDFLARE_ACCOUNT_ID=...`. Then store every value as a repository secret with the [GitHub CLI](https://cli.github.com/):
-
-```sh
-grep -v '=$' .cloudflare.env | gh secret set -f - -R your-account/workoholic
-```
-
-The same can be done by hand under Settings → Secrets and variables → Actions. From then on the Deploy workflow deploys every push to `main`, and it can be started by hand under Actions → Deploy → Run workflow. The values are never written to a file in the repo and GitHub masks them in the logs. Without the secret `CLOUDFLARE_API_TOKEN` the workflow does nothing.
-
 ### Cloudflare Workers Builds
 
 In the Cloudflare dashboard, create a Worker named `workoholic` from your repository (Workers & Pages → Create → Import a repository) and set:
 
-- Deploy command: `sh tools/deploy.sh`
-- Or change nothing: with the default `npm exec -- wrangler deploy` and the build's API token (it needs D1: Edit, Workers Scripts: Edit, Workers KV Storage: Edit, Workers R2 Storage: Edit and Secrets Store: Edit), the build itself creates the D1 database, the Secrets Store key and the KV settings, fills in the placeholders and applies migrations (`postinstall` runs `tools/setup.mjs --workers-build`, only in Workers Builds of `main`). The Worker is served on its workers.dev address with password login; the generated password is in the KV namespace `workoholic-config`, key `first-login` (save it, then delete the key). On the first build the Worker does not exist yet, so the password step can be deferred: if the build log says `Login secrets were not set this time`, start another build, then read the password from KV. Set the build variable `PUBLIC_HOST` to use your own domain instead.
-- Build variables and secrets: every name from the table above with your value
-- API token: the token you created above; the token Cloudflare creates by itself cannot apply D1 migrations or bind the Secrets Store
-- Settings → Build → Branch control: turn off Enable Preview Builds
+Leave the Build command empty and keep the default Deploy command: `npx wrangler deploy`. Workers Builds installs dependencies before running the deploy command. The package `postinstall` detects Workers Builds through `WORKERS_CI=1` and the production branch `main`, then runs `tools/setup.mjs --workers-build`. The script uses the Build token supplied by Cloudflare, discovers or creates D1, R2, Secrets Store and KV resources, stores resource IDs and other non-secret settings in KV, and renders a completed `wrangler.jsonc` before Wrangler runs. D1 migrations are applied in this preparation phase. You do not need to add the corresponding values as GitHub secrets or Workers Build variables.
 
-Cloudflare then deploys every push to `main`. Use either this or the GitHub Actions way, not both, or each push is deployed twice.
+If no custom `PUBLIC_HOST` is configured, setup uses the account's workers.dev address. Password login is enabled by default; the first password is published to the `workoholic-config` KV namespace under the `first-login` key. Save it, then delete the key. If the first build says `Login secrets were not set this time`, the Worker may need to exist after its first deploy; the next build tries again.
+
+Under Settings → Build → Branch control, turn off Enable Preview Builds. Setup is intentionally limited to the production branch because it creates and migrates production resources.
 
 ## Develop
 
