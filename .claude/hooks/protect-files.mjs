@@ -5,7 +5,7 @@ import { realpathSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 
 const WORKFLOWS = "workflows are not changed here (AGENTS.md: only Renovate and Dependabot may). Ask the owner first.";
-const LOCKFILE = "never edit the lockfile by hand. Use pnpm add/remove so pnpm updates it.";
+const LOCKFILE = "never edit package-lock.json by hand. Use npm install or npm uninstall so npm updates it.";
 
 const block = (why) => {
   console.error(`Blocked: ${why}`);
@@ -41,7 +41,7 @@ const reasonFor = (file) => {
     .replaceAll("\\", "/")
     .toLowerCase();
   if (rel === ".github/workflows" || rel.startsWith(".github/workflows/")) return WORKFLOWS;
-  if (rel === "pnpm-lock.yaml") return LOCKFILE;
+  if (rel === "package-lock.json") return LOCKFILE;
   return "";
 };
 
@@ -53,7 +53,7 @@ if (data?.tool_name === "Bash") {
   const writes = /(\bsed\s+(-\S*\s+)*-\S*i|\bperl\s+(-\S*\s+)*-\S*i|\btee\b|\bmv\b|\bcp\b|\brm\b|\bln\b|\btruncate\b|>>?)/;
   if (writes.test(command)) {
     if (/\.github\/workflows\b/i.test(command)) block(WORKFLOWS);
-    if (/(^|[\s/'"=])pnpm-lock\.yaml\b/i.test(command)) block(LOCKFILE);
+    if (/(^|[\s/'"=])package-lock\.json\b/i.test(command)) block(LOCKFILE);
   }
 } else {
   const file = input.file_path ?? input.path ?? input.notebook_path;

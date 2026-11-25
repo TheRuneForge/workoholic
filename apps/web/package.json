@@ -5,15 +5,14 @@
   "scripts": {
     "dev": "wrangler dev --config ../../wrangler.jsonc",
     "typecheck": "wrangler types --config ../../wrangler.jsonc && tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "wrangler": "wrangler"
   },
   "dependencies": {
-    "@cloudflare/playwright": "^1.3.6"
+    "@cloudflare/playwright": "1.3.6"
   },
   "devDependencies": {
     "@mergifyio/vitest": "2026.11.17",
-    "typescript": "7.0.2",
-    "vitest": "5.1.1",
-    "wrangler": "4.165.0"
+    "vitest": "5.1.1"
   }
 }
