@@ -3,7 +3,7 @@
 //
 //   node tools/docs-site.mjs && zensical build    # the site, in site-docs/
 //   node tools/docs-site.mjs --wiki <dir>         # the GitHub wiki, in <dir>
-//   node tools/docs-site.mjs --csp-hashes          # CSP hashes of site/
+//   node tools/docs-site.mjs --csp-hashes <dir>   # CSP hashes of the built site
 //
 // README.md becomes the start page and docker/README.md the Docker page; docs/
 // is included as it is, except docs/agents/, which is written for coding agents.
@@ -21,43 +21,111 @@
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   realpathSync,
-  globSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { posix, resolve, relative, sep } from "node:path";
+import { basename, dirname, isAbsolute, posix, relative, resolve, sep } from "node:path";
 
-// --csp-hashes: print the CSP sources ('sha256-...') that allow the inline
-// scripts in the built HTML under site/, for a Content-Security-Policy that
-// does not allow inline scripts in general.
-if (process.argv[2] === "--csp-hashes") {
-  // The documentation build always writes to this fixed, repository-local
-  // directory. Do not accept a path from argv here: this command only scans
-  // the generated site and must never become an arbitrary file reader.
-  const cwdRoot = realpathSync(process.cwd());
-  const scanRoot = resolve(cwdRoot, "site");
-  if (!existsSync(scanRoot)) throw new Error("--csp-hashes requires site/ to exist");
-  const hashes = new Set();
-  // globSync receives a fixed pattern and a fixed repository-local root;
-  // no command-line value or directory-entry name is used to build a path.
-  // realpath + containment also excludes symlinks that point outside site-docs.
-  for (const relativeFile of globSync("**/*.html", { cwd: scanRoot })) {
-    const candidate = resolve(scanRoot, relativeFile);
-    const resolved = realpathSync(candidate);
-    const rel = relative(scanRoot, resolved);
-    if (rel === ".." || rel.startsWith(`..${sep}`) || posix.isAbsolute(rel)) continue;
-    const html = readFileSync(resolved, "utf8");
-    for (const [, code] of html.matchAll(
-      /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g,
-    )) {
-      if (code) hashes.add(`'sha256-${createHash("sha256").update(code).digest("base64")}'`);
+const isWithin = (path, root) => {
+  const rel = relative(root, path);
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+};
+
+const assertWithin = (path, root, label, allowRoot = false) => {
+  const rootPrefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  if (path === root && allowRoot) return;
+  if (path === root || !path.startsWith(rootPrefix)) {
+    throw new Error(`${label} must be within the current working directory`);
+  }
+};
+
+const findExistingAncestor = (absolute, root, label, allowRoot = false) => {
+  const rootPrefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  if (
+    (absolute === root && !allowRoot) ||
+    (absolute !== root && !absolute.startsWith(rootPrefix))
+  ) {
+    throw new Error(`${label} must be within the current working directory`);
+  }
+  let existing = absolute;
+  const missing = [];
+  while (true) {
+    try {
+      const canonicalExisting = realpathSync.native(existing);
+      return { canonicalExisting, missing };
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
+      const parent = dirname(existing);
+      if (parent === existing) throw error;
+      missing.unshift(basename(existing));
+      existing = parent;
     }
   }
+};
+
+// Resolve the nearest existing ancestor through the filesystem before using a
+// destination. Return its canonical path so later filesystem calls do not traverse
+// the original symlinked ancestors.
+const resolveWithin = (root, candidate, label, allowRoot = false) => {
+  if (candidate.split(/[\\/]/).includes("..")) {
+    throw new Error(`${label} must not contain parent-directory segments`);
+  }
+  const absolute = resolve(root, candidate);
+  assertWithin(absolute, root, label, allowRoot);
+  let current = root;
+  for (const component of relative(root, absolute).split(sep).filter(Boolean)) {
+    current = resolve(current, component);
+    try {
+      if (lstatSync(current).isSymbolicLink()) {
+        throw new Error(`${label} must not traverse symbolic links`);
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
+      break;
+    }
+  }
+  const { canonicalExisting, missing } = findExistingAncestor(absolute, root, label, allowRoot);
+  const canonicalRoot = realpathSync.native(root);
+  const canonical = resolve(canonicalExisting, ...missing);
+  assertWithin(canonical, canonicalRoot, label, allowRoot);
+  if (relative(absolute, canonical) !== "") {
+    throw new Error(`${label} must not traverse symbolic links`);
+  }
+  return canonical;
+};
+
+// --csp-hashes: print the CSP sources ('sha256-...') that allow the inline
+// scripts in the built HTML under <dir>, for a Content-Security-Policy that
+// does not allow inline scripts in general.
+if (process.argv[2] === "--csp-hashes") {
+  const root = realpathSync.native(process.cwd());
+  const scanArg = process.argv[3];
+  if (!scanArg?.trim()) {
+    throw new Error("scan directory is required");
+  }
+  const scanRoot = resolveWithin(root, scanArg, "scan directory", true);
+  const hashes = new Set();
+  const scan = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = posix.join(dir, entry.name);
+      if (entry.isDirectory()) scan(path);
+      else if (entry.isFile() && path.endsWith(".html")) {
+        for (const [, code] of readFileSync(path, "utf8").matchAll(
+          /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g,
+        )) {
+          if (code) hashes.add(`'sha256-${createHash("sha256").update(code).digest("base64")}'`);
+        }
+      }
+    }
+  };
+  scan(scanRoot);
   console.log([...hashes].sort().join(" "));
   process.exit(0);
 }
@@ -66,12 +134,30 @@ const wiki = process.argv[2] === "--wiki";
 const outArg = wiki ? process.argv[3] : "site-docs";
 if (!outArg || !outArg.trim()) throw new Error("usage: node tools/docs-site.mjs [--wiki <dir>]");
 if (outArg.includes("\0")) throw new Error("output directory contains invalid null byte");
-const cwd = resolve(process.cwd());
-const resolvedOut = resolve(cwd, outArg);
-if (resolvedOut !== cwd && !resolvedOut.startsWith(`${cwd}/`)) {
-  throw new Error("output directory must be inside the current working directory");
+const root = realpathSync.native(process.cwd());
+const out = resolveWithin(root, outArg, "output directory");
+if (existsSync(out) && !statSync(out).isDirectory()) {
+  throw new Error("output path must be a directory");
 }
-const out = resolvedOut;
+const protectedRoots = [
+  ".claude",
+  ".github",
+  ".git",
+  "apps",
+  "docker",
+  "docs",
+  "migrations",
+  "node_modules",
+  "packages",
+  "test",
+  "tools",
+].flatMap((path) => {
+  const absolute = resolve(root, path);
+  return existsSync(absolute) ? [absolute, realpathSync.native(absolute)] : [absolute];
+});
+if (protectedRoots.some((path) => out === path || isWithin(out, path) || isWithin(path, out))) {
+  throw new Error("output directory must not overlap source directories");
+}
 const config = readFileSync("zensical.toml", "utf8");
 const repoUrl = config.match(/^repo_url\s*=\s*"([^"]+)"/m)?.[1];
 if (!repoUrl) throw new Error("repo_url is missing in zensical.toml");
