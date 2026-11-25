@@ -21,7 +21,6 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   closeSync,
   cpSync,
-  existsSync,
   lstatSync,
   mkdirSync,
   fstatSync,
