@@ -13,7 +13,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # A copy of the repo without a Cloudflare token has nothing to deploy to.
+  # Forks have no deployment token; configured deployments must fail clearly
+  # when any required setting is missing rather than silently skipping deploy.
   configured:
     runs-on: ubuntu-latest
     outputs:
@@ -22,12 +23,38 @@ jobs:
       - id: check
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PUBLIC_HOST: ${{ secrets.PUBLIC_HOST }}
+          CF_ACCESS_TEAM_DOMAIN: ${{ secrets.CF_ACCESS_TEAM_DOMAIN }}
+          CF_ACCESS_AUD: ${{ secrets.CF_ACCESS_AUD }}
+          D1_DATABASE_NAME: ${{ secrets.D1_DATABASE_NAME || 'workoholic' }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          SECRETS_STORE_ID: ${{ secrets.SECRETS_STORE_ID }}
+          CONFIG_NAMESPACE: ${{ secrets.CONFIG_NAMESPACE }}
+          SITE_FAMILY: ${{ secrets.SITE_FAMILY || 'Workoholic' }}
+          THEME_KEY_PREFIX: ${{ secrets.THEME_KEY_PREFIX }}
         run: |
-          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
-            echo "ready=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "The secret CLOUDFLARE_API_TOKEN is not set, so nothing is deployed."
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "No Cloudflare deployment token is configured; deployment is skipped."
+            echo "ready=false" >>"$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          missing=
+          for name in CLOUDFLARE_ACCOUNT_ID PUBLIC_HOST CF_ACCESS_TEAM_DOMAIN \
+            CF_ACCESS_AUD D1_DATABASE_ID SECRETS_STORE_ID CONFIG_NAMESPACE \
+            THEME_KEY_PREFIX; do
+            if [ -z "${!name}" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Cloudflare deployment token is configured, but required Actions secrets are missing:$missing"
+            exit 1
+          fi
+
+          echo "All required Cloudflare deployment settings are present."
+          echo "ready=true" >>"$GITHUB_OUTPUT"
 
   deploy:
     needs: configured
@@ -44,17 +71,16 @@ jobs:
       - run: npm ci --ignore-scripts --legacy-peer-deps
       - run: npm test
       - run: sh tools/deploy.sh
-        # Every name in cloudflare.example.env, read from the repository secrets.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PUBLIC_HOST: ${{ secrets.PUBLIC_HOST }}
           CF_ACCESS_TEAM_DOMAIN: ${{ secrets.CF_ACCESS_TEAM_DOMAIN }}
           CF_ACCESS_AUD: ${{ secrets.CF_ACCESS_AUD }}
-          D1_DATABASE_NAME: ${{ secrets.D1_DATABASE_NAME }}
+          D1_DATABASE_NAME: ${{ secrets.D1_DATABASE_NAME || 'workoholic' }}
           D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
           SECRETS_STORE_ID: ${{ secrets.SECRETS_STORE_ID }}
           CONFIG_NAMESPACE: ${{ secrets.CONFIG_NAMESPACE }}
-          SITE_FAMILY: ${{ secrets.SITE_FAMILY }}
+          SITE_FAMILY: ${{ secrets.SITE_FAMILY || 'Workoholic' }}
           THEME_KEY_PREFIX: ${{ secrets.THEME_KEY_PREFIX }}
           THEME_COOKIE_DOMAIN: ${{ secrets.THEME_COOKIE_DOMAIN }}

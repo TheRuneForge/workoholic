@@ -29,3 +29,27 @@ pull_request_rules:
       - -draft
     actions:
       queue:
+
+  - name: Keep PRs up to date
+    conditions:
+      - -draft
+      - "#commits-behind >= 1"
+    actions:
+      update:
+
+  - name: Label web app changes
+    conditions:
+      - files ~= ^apps/web/
+    actions:
+      label:
+        add:
+          - area/frontend
+
+  - name: Label documentation changes
+    conditions:
+      - files ~= ^docs/
+    actions:
+      label:
+        add:
+          - documentation
+          - area/docs
