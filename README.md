@@ -2,7 +2,7 @@
 
 Söker jobb åt dig hos StudentConsulting, högst tio per kalendermånad, och samlar dem i en textfil. Appen är en Cloudflare Worker med D1, R2, Workflows och Browser Rendering, och är uppdelad i en npm-arbetsyta: `apps/web`, `packages/core` och `packages/studentconsulting`.
 
-Alla miljöspecifika inställningar är platshållare av typen `__NAMN__`. Vid Cloudflare Workers Builds hämtar installationssteget resurs-ID:n och övriga inställningar via Workerns Build-token, sparar de icke-hemliga värdena i KV och fyller i `wrangler.jsonc` innan driftsättningen. Vid lokal Wrangler-driftsättning använder du en egen, git-ignorerad värdefil. Din inloggning hos StudentConsulting och övriga hemligheter fyller du i i appen, där de lagras krypterade.
+Alla miljöspecifika inställningar är platshållare av typen `__NAMN__`. Vid Cloudflare Workers Builds hämtar deploy-steget resurs-ID:n och övriga inställningar via Workerns Build-token, återställer sparade inställningar från KV och fyller i `wrangler.jsonc` före driftsättningen. Vid lokal Wrangler-driftsättning använder du en egen, git-ignorerad värdefil. Din inloggning hos StudentConsulting och övriga hemligheter fyller du i i appen, där de lagras krypterade.
 
 ## Kör en egen kopia
 
@@ -28,7 +28,7 @@ Porten publiceras bara på den här datorn. För att nå appen från andra dator
 
 ### Dina värden hos Cloudflare
 
-Värdena i `cloudflare.example.env` används vid lokal Wrangler-driftsättning. Workers Builds hämtar motsvarande resursvärden från Cloudflare automatiskt under installationen.
+Värdena i `cloudflare.example.env` används vid lokal Wrangler-driftsättning. Workers Builds hämtar resursvärdena från Cloudflare automatiskt i deploy-steget.
 
 | Namn | Värde |
 |---|---|
@@ -99,6 +99,8 @@ Workers Builds har två separata faser. Build command installerar bara de låsta
 
 Om ingen egen `PUBLIC_HOST` har konfigurerats använder installationen kontots workers.dev-adress. Inloggning använder lösenord som standard; första lösenordet publiceras till KV-namnrymden `workoholic-config`, nyckeln `first-login`. Spara det och radera sedan nyckeln. Om första bygget säger `Login secrets were not set this time` kan Workern behöva finnas efter första deployen; nästa bygge försöker igen.
 
+Inga variabelvärden behöver anges för standardinstallationen. Sparade inställningar läses från KV vid varje nytt bygge och skrivs inte över av standardvärden. Vill du anpassa installationen kan du ange `PUBLIC_HOST`, `D1_DATABASE_NAME`, `CONFIG_NAMESPACE`, `SITE_FAMILY`, `THEME_KEY_PREFIX` eller `THEME_COOKIE_DOMAIN` som Workers Build variables. De värdena får företräde framför sparade inställningar. `D1_DATABASE_ID` och `SECRETS_STORE_ID` hämtas automatiskt och ska inte anges manuellt.
+
 Build-token måste ha behörighet för resurserna som konfigurationen hanterar. Cloudflares automatiskt skapade token har normalt Workers Scripts, KV, R2 och Routes, men saknar D1 och Secrets Store. Lägg till **D1: Edit** och **Secrets Store: Edit** på just den token som valts under Settings → Builds → API token. Inga variabelvärden behöver läggas in manuellt.
 
 Under Settings → Build → Branch control ska Enable Preview Builds vara avstängt. Setup-flödet är avsiktligt begränsat till produktionsgrenen eftersom det skapar och migrerar produktionsresurser.
@@ -107,6 +109,9 @@ Under Settings → Build → Branch control ska Enable Preview Builds vara avst�
 
 ```sh
 npm ci --legacy-peer-deps
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-test.txt
 npm test
 npm run typecheck
 ```

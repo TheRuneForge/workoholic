@@ -148,6 +148,10 @@ test("Workers Builds performs resource setup and migrations in the deploy phase"
   assert.match(setup, /const BUILD_COMMAND = "npm ci --legacy-peer-deps"/);
   assert.match(setup, /const DEPLOY_COMMAND = "node tools\/setup\.mjs --workers-build && npm exec -- wrangler deploy"/);
   assert.match(setup, /CLOUDFLARE_API_TOKEN/);
+  assert.match(setup, /const rawSettings = await kvText/);
+  assert.ok(setup.includes("savedSettings.PUBLIC_HOST"));
+  assert.ok(setup.includes("savedSettings.CONFIG_NAMESPACE"));
+  assert.ok(setup.includes('host.endsWith(".workers.dev")'));
   assert.match(setup, /\/d1\/database/);
   assert.match(setup, /\/secrets_store\/stores/);
   assert.match(setup, /\/storage\/kv\/namespaces/);

@@ -40,6 +40,7 @@ build/Release
 
 # Dependency directories
 node_modules/
+.venv/
 jspm_packages/
 
 # Snowpack dependency directory (https://snowpack.dev/)
@@ -157,7 +158,7 @@ __MACOSX/
 .AppleDouble
 .LSOverride
 # macOS custom folder icons
-Icon
+Icon*
 
 # Resource forks
 ._*

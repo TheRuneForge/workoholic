@@ -2,7 +2,7 @@
 
 Applies for jobs on your behalf at StudentConsulting, at most ten per calendar month, and collects them in a text file. The app is a Cloudflare Worker with D1, R2, Workflows and Browser Rendering, organised as an npm workspace: `apps/web`, `packages/core` and `packages/studentconsulting`.
 
-All environment-specific settings are `__NAME__` placeholders. With Cloudflare Workers Builds, the install step discovers resource IDs and other settings through the Worker's Build token, stores non-secret values in KV, and fills in `wrangler.jsonc` before deployment. For local Wrangler deployments, use your own git-ignored values file. Your StudentConsulting sign-in and other secrets are entered in the app and stored encrypted.
+All environment-specific settings are `__NAME__` placeholders. With Cloudflare Workers Builds, the deploy step discovers resource IDs and other settings through the Worker's Build token, restores saved settings from KV, and fills in `wrangler.jsonc` before deployment. For local Wrangler deployments, use your own git-ignored values file. Your StudentConsulting sign-in and other secrets are entered in the app and stored encrypted.
 
 ## Run your own copy
 
@@ -28,7 +28,7 @@ The port is published on this machine only. To reach the app from other machines
 
 ### Your values on Cloudflare
 
-The values in `cloudflare.example.env` are used for local Wrangler deployments. Workers Builds automatically discovers the corresponding resource values from Cloudflare during installation.
+The values in `cloudflare.example.env` are used for local Wrangler deployments. Workers Builds automatically discovers resource values from Cloudflare during the deploy phase.
 
 | Name | Value |
 |---|---|
@@ -99,6 +99,8 @@ Workers Builds has two separate phases. The Build command only installs the lock
 
 If no custom `PUBLIC_HOST` is configured, setup uses the account's workers.dev address. Password login is enabled by default; the first password is published to the `workoholic-config` KV namespace under the `first-login` key. Save it, then delete the key. If the first build says `Login secrets were not set this time`, the Worker may need to exist after its first deploy; the next build tries again.
 
+No variable values are needed for the default setup. Saved settings are read from KV on every build and are not overwritten by defaults. To customize an installation, set `PUBLIC_HOST`, `D1_DATABASE_NAME`, `CONFIG_NAMESPACE`, `SITE_FAMILY`, `THEME_KEY_PREFIX` or `THEME_COOKIE_DOMAIN` as Workers Build variables. These values override saved settings. `D1_DATABASE_ID` and `SECRETS_STORE_ID` are discovered automatically and should not be entered manually.
+
 The Build token must have access to the resources managed by this configuration. Cloudflare's automatically generated token normally includes Workers Scripts, KV, R2 and Routes, but not D1 or Secrets Store. Add **D1: Edit** and **Secrets Store: Edit** to the token selected under Settings → Builds → API token. No variable values need to be entered manually.
 
 Under Settings → Build → Branch control, turn off Enable Preview Builds. Setup is intentionally limited to the production branch because it creates and migrates production resources.
@@ -107,6 +109,9 @@ Under Settings → Build → Branch control, turn off Enable Preview Builds. Set
 
 ```sh
 npm ci --legacy-peer-deps
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-test.txt
 npm test
 npm run typecheck
 ```

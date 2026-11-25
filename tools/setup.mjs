@@ -30,8 +30,9 @@ const BUCKET = "workoholic-evidence";
 const KEY_NAME = "WORKOHOLIC_CONFIG_KEY";
 const KV_TITLE = "workoholic-config"; // holds the non-secret render settings for cloud builds
 
-// Settings come from the environment only. The package script loads setup.env
-// into it with node --env-file-if-exists, so this code reads no file itself.
+// Local settings come from setup.env via the package script. Workers Builds also
+// restores its previously saved non-secret settings from the KV settings key;
+// explicit build variables take precedence over those saved values.
 const get = (name, fallback = "") => (process.env[name] ?? "").trim() || fallback;
 
 const token = get("CLOUDFLARE_API_TOKEN");
@@ -42,8 +43,7 @@ if (!token) {
       : "CLOUDFLARE_API_TOKEN is missing. Put it in setup.env (see setup.example.env).",
   );
 }
-const auth = get("AUTH", workersBuild && get("CF_ACCESS_TEAM_DOMAIN") && get("CF_ACCESS_AUD") ? "access" : "password");
-if (!["password", "access"].includes(auth)) fail("AUTH must be 'password' or 'access'.");
+let auth = get("AUTH", workersBuild && get("CF_ACCESS_TEAM_DOMAIN") && get("CF_ACCESS_AUD") ? "access" : "password");
 let host = get("PUBLIC_HOST");
 // A build without PUBLIC_HOST serves the Worker on its workers.dev address.
 if (!host && !workersBuild) fail("PUBLIC_HOST is missing. Set the hostname the app will be served on (a domain in your Cloudflare account).");
@@ -211,7 +211,39 @@ async function main() {
   accountId = account;
   say(`✔ Token works (account ${accounts.find((a) => a.id === account)?.name ?? account})`);
 
-  const dbName = get("D1_DATABASE_NAME", "workoholic");
+  // Find the settings namespace first. Existing Workers Builds deployments
+  // may have custom values (for example PUBLIC_HOST) that must survive rebuilds.
+  let kv;
+  for (let page = 1; !kv; page++) {
+    const namespaces = await api("GET", `/accounts/${account}/storage/kv/namespaces?per_page=100&page=${page}`);
+    kv = namespaces.find((item) => item.title === KV_TITLE);
+    if (namespaces.length < 100) break;
+  }
+  let savedSettings = {};
+  if (workersBuild && kv) {
+    const rawSettings = await kvText(`/accounts/${account}/storage/kv/namespaces/${kv.id}/values/settings`);
+    if (rawSettings) {
+      try {
+        savedSettings = JSON.parse(rawSettings);
+      } catch {
+        fail(`KV "${KV_TITLE}" contains invalid JSON in its settings key.`);
+      }
+      if (!savedSettings || Array.isArray(savedSettings) || typeof savedSettings !== "object") {
+        fail(`KV "${KV_TITLE}" settings must be a JSON object.`);
+      }
+    }
+    auth = get("AUTH", savedSettings.AUTH || auth);
+    host = get("PUBLIC_HOST", savedSettings.PUBLIC_HOST || host);
+  }
+  if (!["password", "access"].includes(auth)) fail("AUTH must be 'password' or 'access'.");
+  if (auth === "access" && (!get("CF_ACCESS_TEAM_DOMAIN", savedSettings.CF_ACCESS_TEAM_DOMAIN || "") || !get("CF_ACCESS_AUD", savedSettings.CF_ACCESS_AUD || ""))) {
+    fail("AUTH=access needs CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD.");
+  }
+  if (host && !/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i.test(host)) {
+    fail("PUBLIC_HOST must be a plain hostname such as app.example.com.");
+  }
+  const dbName = get("D1_DATABASE_NAME", savedSettings.D1_DATABASE_NAME || "workoholic");
+  if (!/^[a-z0-9][a-z0-9_-]{0,62}$/i.test(dbName)) fail("D1_DATABASE_NAME may only contain letters, digits, _ and -.");
   const databases = await api("GET", `/accounts/${account}/d1/database?name=${encodeURIComponent(dbName)}`);
   let database = databases.find((d) => d.name === dbName);
   let r2Enabled = true;
@@ -241,14 +273,6 @@ async function main() {
   // A new key cannot decrypt configuration saved under an earlier one.
   const keyBlocked = !hasKey && Boolean(database) && !get("ALLOW_NEW_CONFIG_KEY");
   const keyBlockedMessage = `D1 database "${dbName}" already exists but ${KEY_NAME} was not found in any Secrets Store. A new key could not decrypt settings saved earlier. Restore the old key, or set ALLOW_NEW_CONFIG_KEY=1 in setup.env if the database holds no saved settings.`;
-
-  // Every page of namespaces, so an existing one is never missed.
-  let kv;
-  for (let page = 1; !kv; page++) {
-    const namespaces = await api("GET", `/accounts/${account}/storage/kv/namespaces?per_page=100&page=${page}`);
-    kv = namespaces.find((item) => item.title === KV_TITLE);
-    if (namespaces.length < 100) break;
-  }
 
   if (check) {
     say(`Would ${database ? "reuse" : "create"} D1 database "${dbName}"`);
@@ -295,7 +319,7 @@ async function main() {
   } else say(`✔ ${KEY_NAME} exists (left untouched)`);
 
   // 3. Render
-  let workersDev = false;
+  let workersDev = Boolean(host && host.endsWith(".workers.dev"));
   if (!host) {
     if (auth === "access") fail("Cloudflare Access login needs your own domain: set PUBLIC_HOST as a build variable.");
     // Only a confirmed missing subdomain (code 10007) counts as missing configuration.
@@ -311,15 +335,16 @@ async function main() {
   const renderEnv = {
     PATH: process.env.PATH,
     PUBLIC_HOST: host,
-    CF_ACCESS_TEAM_DOMAIN: auth === "access" ? get("CF_ACCESS_TEAM_DOMAIN") : "",
-    CF_ACCESS_AUD: auth === "access" ? get("CF_ACCESS_AUD") : "",
+    AUTH: auth,
+    CF_ACCESS_TEAM_DOMAIN: auth === "access" ? get("CF_ACCESS_TEAM_DOMAIN", savedSettings.CF_ACCESS_TEAM_DOMAIN || "") : "",
+    CF_ACCESS_AUD: auth === "access" ? get("CF_ACCESS_AUD", savedSettings.CF_ACCESS_AUD || "") : "",
     D1_DATABASE_NAME: dbName,
     D1_DATABASE_ID: database.uuid,
     SECRETS_STORE_ID: store.id,
-    CONFIG_NAMESPACE: get("CONFIG_NAMESPACE", "Workoholic"),
-    SITE_FAMILY: get("SITE_FAMILY", "Workoholic"),
-    THEME_KEY_PREFIX: get("THEME_KEY_PREFIX", "workoholic"),
-    THEME_COOKIE_DOMAIN: get("THEME_COOKIE_DOMAIN", ""),
+    CONFIG_NAMESPACE: get("CONFIG_NAMESPACE", savedSettings.CONFIG_NAMESPACE || "Workoholic"),
+    SITE_FAMILY: get("SITE_FAMILY", savedSettings.SITE_FAMILY || "Workoholic"),
+    THEME_KEY_PREFIX: get("THEME_KEY_PREFIX", savedSettings.THEME_KEY_PREFIX || "workoholic"),
+    THEME_COOKIE_DOMAIN: get("THEME_COOKIE_DOMAIN", savedSettings.THEME_COOKIE_DOMAIN || ""),
   };
   // Render into the ignored build/ directory in both modes. This avoids a
   // dependency on the build machine's temp filesystem and gives Workers Builds
@@ -333,6 +358,7 @@ async function main() {
   // variables have to be typed in.
   const buildVariables = Object.fromEntries(
     [
+      "AUTH",
       "PUBLIC_HOST",
       "D1_DATABASE_NAME",
       "D1_DATABASE_ID",
