@@ -74,6 +74,7 @@ jobs:
         env:
           MERGIFY_TEST_JOB_NAME: test (node)
         run: |
+          python3 tools/mergify-junit.py junit.xml
           pipx run --spec mergify-cli==2026.11.17 mergify ci junit-process junit.xml
 
       - name: Typecheck
