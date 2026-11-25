@@ -1,27 +1,3 @@
-merge_queue:
-  mode: serial
-  max_parallel_checks: 1
-  queue_controls_comment: true
-  status_comments: outcomes
-
-queue_rules:
-  - name: main
-    merge_method: squash
-    batch_size: 5
-    queue_conditions:
-      - base = main
-      - -draft
-    merge_conditions:
-      - base = main
-      - check-success = test
-      # A green test job is necessary but not sufficient: wait for every other
-      # check and block on any failure, neutral result, or stale result.
-      # Exclude Mergify's own checks to avoid a self-referential queue condition.
-      - -check-failure ~= ^(?!Mergify|Summary).+
-      - -check-pending ~= ^(?!Mergify|Summary).+
-      - -check-neutral ~= ^(?!Mergify|Summary).+
-      - -check-stale ~= ^(?!Mergify|Summary).+
-
 priority_rules:
   - name: security-updates
     conditions:
@@ -30,13 +6,6 @@ priority_rules:
     priority: high
 
 pull_request_rules:
-  - name: automatically queue pull requests
-    conditions:
-      - base = main
-      - -draft
-    actions:
-      queue:
-
   - name: Keep PRs up to date
     conditions:
       - -draft
