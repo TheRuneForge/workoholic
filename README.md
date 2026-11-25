@@ -88,11 +88,18 @@ Kör det sista kommandot igen när du vill driftsätta en nyare version. `tools/
 
 ### Cloudflare Workers Builds
 
-Skapa en Worker med namnet `workoholic` från ditt repo i Cloudflares kontrollpanel (Workers & Pages → Create → Import a repository) och ange:
+Skapa en Worker med namnet `workoholic` från ditt repo i Cloudflares kontrollpanel (Workers & Pages → Create → Import a repository). Använd följande kommandon under Settings → Builds:
 
-Låt Build command vara tomt och behåll standardkommandot för Deploy: `npx wrangler deploy`. Workers Builds installerar beroendena före deploy-kommandot. Paketets `postinstall` känner igen Workers Builds på `WORKERS_CI=1` och produktionsgrenen `main`, och kör då `tools/setup.mjs --workers-build`. Skriptet använder Build-token som Cloudflare tillhandahåller, hittar eller skapar D1, R2, Secrets Store och KV, sparar resurs-ID:n och övriga icke-hemliga inställningar i KV och renderar en färdig `wrangler.jsonc` innan Wrangler körs. D1-migreringarna tillämpas i samma förberedande fas. Du behöver inte lägga in motsvarande värden som GitHub-hemligheter eller Workers Build-variabler.
+```sh
+Build command: npm ci --legacy-peer-deps
+Deploy command: node tools/setup.mjs --workers-build && npm exec -- wrangler deploy
+```
+
+Workers Builds har två separata faser. Build command installerar bara de låsta beroendena: `npm ci --legacy-peer-deps`. Deploy command kör sedan `node tools/setup.mjs --workers-build && npm exec -- wrangler deploy`. I den fasen hämtar skriptet resurs-ID:n och övriga inställningar med Workerns valda Build-token, skapar resurser som saknas, sparar icke-hemliga inställningar i KV och fyller i `wrangler.jsonc`. Därefter tillämpas D1-migreringarna och Wrangler driftsätter den färdiga konfigurationen. Inga manuellt inmatade Workers Build-variabler eller GitHub-hemligheter behövs.
 
 Om ingen egen `PUBLIC_HOST` har konfigurerats använder installationen kontots workers.dev-adress. Inloggning använder lösenord som standard; första lösenordet publiceras till KV-namnrymden `workoholic-config`, nyckeln `first-login`. Spara det och radera sedan nyckeln. Om första bygget säger `Login secrets were not set this time` kan Workern behöva finnas efter första deployen; nästa bygge försöker igen.
+
+Build-token måste ha behörighet för resurserna som konfigurationen hanterar. Cloudflares automatiskt skapade token har normalt Workers Scripts, KV, R2 och Routes, men saknar D1 och Secrets Store. Lägg till **D1: Edit** och **Secrets Store: Edit** på just den token som valts under Settings → Builds → API token. Inga variabelvärden behöver läggas in manuellt.
 
 Under Settings → Build → Branch control ska Enable Preview Builds vara avstängt. Setup-flödet är avsiktligt begränsat till produktionsgrenen eftersom det skapar och migrerar produktionsresurser.
 

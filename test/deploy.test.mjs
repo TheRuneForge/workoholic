@@ -29,7 +29,7 @@ function deploy(args, env = {}) {
   const result = spawnSync("sh", [join(root, "tools/deploy.sh"), ...args], {
     cwd: root,
     encoding: "utf8",
-    env: { ...clean, ...env, PATH: `${dir}:${process.env.PATH}`, DEPLOY_LOG: log },
+    env: { ...clean, ...env, TMPDIR: tmpdir(), PATH: `${dir}:${process.env.PATH}`, DEPLOY_LOG: log },
   });
   const called = existsSync(log);
   const lines = called ? readFileSync(log, "utf8").trimEnd().split("\n") : [];
@@ -131,8 +131,9 @@ test("refuses to upload without the Cloudflare Access values", (t) => {
   assert.equal(filled.status, 0, filled.stderr);
 });
 
-test("Workers Builds resolves and renders Cloudflare settings during install before deploy", () => {
+test("Workers Builds performs resource setup and migrations in the deploy phase", () => {
   const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
   const setup = readFileSync(join(root, "tools/setup.mjs"), "utf8");
   const renderer = readFileSync(join(root, "tools/render.mjs"), "utf8");
   const configSources = [
@@ -142,17 +143,17 @@ test("Workers Builds resolves and renders Cloudflare settings during install bef
     "apps/web/public/index.html",
     "apps/web/public/assets/dashboard.js",
   ].map((file) => readFileSync(join(root, file), "utf8")).join("\\n");
-  const postinstall = packageJson.scripts.postinstall;
-
-  assert.match(postinstall, /WORKERS_CI==='1'/);
-  assert.match(postinstall, /WORKERS_CI_BRANCH==='main'/);
-  assert.match(postinstall, /tools\/setup\.mjs','--workers-build'/);
+  assert.equal(packageJson.scripts.postinstall, undefined, "setup must not run during npm install");
+  assert.equal(lock.packages[""].hasInstallScript, undefined, "lockfile must not advertise an install script");
+  assert.match(setup, /const BUILD_COMMAND = "npm ci --legacy-peer-deps"/);
+  assert.match(setup, /const DEPLOY_COMMAND = "node tools\/setup\.mjs --workers-build && npm exec -- wrangler deploy"/);
   assert.match(setup, /CLOUDFLARE_API_TOKEN/);
   assert.match(setup, /\/d1\/database/);
   assert.match(setup, /\/secrets_store\/stores/);
   assert.match(setup, /\/storage\/kv\/namespaces/);
   assert.match(setup, /values\/settings/);
   assert.match(setup, /tools\/render\.mjs/);
+  assert.match(setup, /const renderDir = "build"/);
   assert.match(setup, /cpSync\(renderDir, root/);
   assert.ok(setup.indexOf('cpSync(renderDir, root') < setup.indexOf('wrangler(["d1", "migrations", "apply"'));
   assert.match(renderer, /readKvValues/);

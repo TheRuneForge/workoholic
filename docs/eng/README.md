@@ -88,11 +88,18 @@ Run the last command again whenever you want to deploy a newer version. `tools/d
 
 ### Cloudflare Workers Builds
 
-In the Cloudflare dashboard, create a Worker named `workoholic` from your repository (Workers & Pages → Create → Import a repository) and set:
+In the Cloudflare dashboard, create a Worker named `workoholic` from your repository (Workers & Pages → Create → Import a repository). Under Settings → Builds, use:
 
-Leave the Build command empty and keep the default Deploy command: `npx wrangler deploy`. Workers Builds installs dependencies before running the deploy command. The package `postinstall` detects Workers Builds through `WORKERS_CI=1` and the production branch `main`, then runs `tools/setup.mjs --workers-build`. The script uses the Build token supplied by Cloudflare, discovers or creates D1, R2, Secrets Store and KV resources, stores resource IDs and other non-secret settings in KV, and renders a completed `wrangler.jsonc` before Wrangler runs. D1 migrations are applied in this preparation phase. You do not need to add the corresponding values as GitHub secrets or Workers Build variables.
+```sh
+Build command: npm ci --legacy-peer-deps
+Deploy command: node tools/setup.mjs --workers-build && npm exec -- wrangler deploy
+```
+
+Workers Builds has two separate phases. The Build command only installs the locked dependencies: `npm ci --legacy-peer-deps`. The Deploy command then runs `node tools/setup.mjs --workers-build && npm exec -- wrangler deploy`. In that phase, the script uses the Worker's selected Build token to discover resource IDs and other settings, creates any missing resources, stores non-secret settings in KV, and fills in `wrangler.jsonc`. D1 migrations are then applied and Wrangler deploys the completed configuration. No manually entered Workers Build variables or GitHub secrets are needed.
 
 If no custom `PUBLIC_HOST` is configured, setup uses the account's workers.dev address. Password login is enabled by default; the first password is published to the `workoholic-config` KV namespace under the `first-login` key. Save it, then delete the key. If the first build says `Login secrets were not set this time`, the Worker may need to exist after its first deploy; the next build tries again.
+
+The Build token must have access to the resources managed by this configuration. Cloudflare's automatically generated token normally includes Workers Scripts, KV, R2 and Routes, but not D1 or Secrets Store. Add **D1: Edit** and **Secrets Store: Edit** to the token selected under Settings → Builds → API token. No variable values need to be entered manually.
 
 Under Settings → Build → Branch control, turn off Enable Preview Builds. Setup is intentionally limited to the production branch because it creates and migrates production resources.
 

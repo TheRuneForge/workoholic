@@ -4,14 +4,13 @@
 //   npm run setup:cloudflare            create resources, render, migrate and deploy
 //   npm run setup:cloudflare -- --check    only verify the token and show what would be created
 //
-// Input: a temporary setup token (CLOUDFLARE_API_TOKEN) and PUBLIC_HOST, from
-// setup.env or the environment (see setup.example.env). Everything else is
-// looked up or generated, and the run can be repeated safely. Secret values are
-// never printed; generated ones go to .setup-secrets (owner-only, git-ignored).
+// Local setup uses a temporary setup token (CLOUDFLARE_API_TOKEN) and optional
+// PUBLIC_HOST from setup.env. Workers Builds runs this script in its deploy phase,
+// where the Worker's configured build token authenticates resource discovery and
+// setup before the final Wrangler deployment. Secret values are never printed.
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { cpSync, lstatSync, readFileSync, writeFileSync, chmodSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -22,10 +21,9 @@ if (process.platform === "win32") {
   process.exit(1);
 }
 const check = process.argv.includes("--check");
-// --workers-build runs inside a Cloudflare Workers Builds build (via the
-// postinstall script). It creates what is missing, fills in the placeholders in
-// the build checkout and applies migrations; the build's own deploy command
-// then deploys. The postinstall script only starts it inside Workers Builds.
+// --workers-build runs only from the Workers Builds deploy command. It creates
+// what is missing, fills in the placeholders in the build checkout and applies
+// migrations; the deploy command then runs Wrangler against that completed config.
 const workersBuild = process.argv.includes("--workers-build");
 const WORKER = "workoholic";
 const BUCKET = "workoholic-evidence";
@@ -37,7 +35,13 @@ const KV_TITLE = "workoholic-config"; // holds the non-secret render settings fo
 const get = (name, fallback = "") => (process.env[name] ?? "").trim() || fallback;
 
 const token = get("CLOUDFLARE_API_TOKEN");
-if (!token) fail("CLOUDFLARE_API_TOKEN is missing. Put it in setup.env (see setup.example.env).");
+if (!token) {
+  fail(
+    workersBuild
+      ? "Workers Builds did not provide its selected Build token to the deploy command."
+      : "CLOUDFLARE_API_TOKEN is missing. Put it in setup.env (see setup.example.env).",
+  );
+}
 const auth = get("AUTH", workersBuild && get("CF_ACCESS_TEAM_DOMAIN") && get("CF_ACCESS_AUD") ? "access" : "password");
 if (!["password", "access"].includes(auth)) fail("AUTH must be 'password' or 'access'.");
 let host = get("PUBLIC_HOST");
@@ -181,10 +185,29 @@ async function main() {
   if (!check && !workersBuild) takeLock();
   // 1. Token and account
   const accounts = await api("GET", "/accounts");
-  if (accounts.length !== 1 && !get("CLOUDFLARE_ACCOUNT_ID")) {
-    fail(`The token sees ${accounts.length} accounts. Set CLOUDFLARE_ACCOUNT_ID in setup.env.`);
+  let account = get("CLOUDFLARE_ACCOUNT_ID");
+  if (!account && accounts.length === 1) account = accounts[0].id;
+  if (!account && accounts.length > 1) {
+    // Workers Builds already knows which Worker it is deploying. Find that
+    // Worker in the accounts visible to the Build token instead of requiring
+    // a manually entered account ID.
+    const matches = [];
+    for (const candidate of accounts) {
+      try {
+        const scripts = await api("GET", `/accounts/${candidate.id}/workers/scripts`);
+        if (scripts.some((script) => script.id === WORKER)) matches.push(candidate);
+      } catch {
+        // A scoped token may not be allowed to enumerate unrelated accounts.
+      }
+    }
+    if (matches.length === 1) account = matches[0].id;
   }
-  const account = get("CLOUDFLARE_ACCOUNT_ID") || accounts[0].id;
+  if (!account || !accounts.some((candidate) => candidate.id === account)) {
+    fail(
+      `Could not identify the Cloudflare account for Worker "${WORKER}".` +
+      (accounts.length > 1 ? " If this is a local setup, set CLOUDFLARE_ACCOUNT_ID in setup.env." : ""),
+    );
+  }
   accountId = account;
   say(`✔ Token works (account ${accounts.find((a) => a.id === account)?.name ?? account})`);
 
@@ -298,9 +321,10 @@ async function main() {
     THEME_KEY_PREFIX: get("THEME_KEY_PREFIX", "workoholic"),
     THEME_COOKIE_DOMAIN: get("THEME_COOKIE_DOMAIN", ""),
   };
-  // A fresh checkout has no ignored build/ directory yet, which the renderer
-  // insists on, so a build renders into the temp directory instead.
-  const renderDir = workersBuild ? join(tmpdir(), "workoholic-render") : "build";
+  // Render into the ignored build/ directory in both modes. This avoids a
+  // dependency on the build machine's temp filesystem and gives Workers Builds
+  // a complete, deterministic config before its deploy command continues.
+  const renderDir = "build";
   const render = await run("node", ["tools/render.mjs", "-", renderDir], { env: renderEnv });
   if (render.status !== 0) fail(`render failed:\n${render.stderr}`);
   say(`✔ Rendered ${workersBuild ? "the checkout" : "build/"}`);
@@ -440,13 +464,10 @@ async function main() {
   if (buildsNote) {
     say(`
 ${buildsNote}
-Set these two by hand in Workers & Pages → ${WORKER} → Settings → Builds (no build variables are needed):
+Set these two by hand in Workers & Pages → ${WORKER} → Settings → Builds:
   Build command : ${BUILD_COMMAND}
   Deploy command: ${DEPLOY_COMMAND}
-If the build fails at the migration step, select an API token with D1 Edit and Workers Scripts Edit under Settings → Builds → API token (the default build token may lack D1 access).
-If it cannot read the KV settings (it needs Cloudflare credentials to do so), use this build command instead and add these build variables (not secret):
-  Build command : npm ci --legacy-peer-deps && node tools/render.mjs - build
-${Object.entries(buildVariables).map(([name, value]) => `    ${name}=${value}`).join("\n")}`);
+The selected Build token must have the permissions needed for the resources this setup manages (D1, R2, KV, Secrets Store and Workers Scripts). The build does not need manually entered variables.`);
   }
   say(
     buildsNote
@@ -455,8 +476,11 @@ ${Object.entries(buildVariables).map(([name, value]) => `    ${name}=${value}`).
   );
 }
 
-const BUILD_COMMAND = `npm ci --legacy-peer-deps && node tools/render.mjs kv:${KV_TITLE} build`;
-const DEPLOY_COMMAND = "npm exec -- wrangler d1 migrations apply DB --remote --cwd build && npm exec -- wrangler deploy --cwd build";
+// Workers Builds has two distinct phases. Installation only installs the
+// pinned dependencies. Resource discovery, rendering and D1 migrations happen
+// in the deploy command, where Cloudflare applies the Worker's Build token.
+const BUILD_COMMAND = "npm ci --legacy-peer-deps";
+const DEPLOY_COMMAND = "node tools/setup.mjs --workers-build && npm exec -- wrangler deploy";
 
 // Returns "" when Workers Builds is configured, otherwise why it was not.
 async function configureWorkersBuilds(account) {
