@@ -2,41 +2,44 @@
 """Wrap Node.js's built-in JUnit output in a standard JUnit testsuite."""
 
 from pathlib import Path
+import re
 import sys
-import xml.etree.ElementTree as ET
 
 
 def main() -> None:
     report = Path(sys.argv[1] if len(sys.argv) > 1 else "junit.xml")
-    tree = ET.parse(report)
-    root = tree.getroot()
+    xml = report.read_text(encoding="utf-8")
 
-    if root.tag == "testsuite":
+    opening = re.search(r"<testsuites(?:\s[^>]*)?>", xml)
+    closing = xml.rfind("</testsuites>")
+    if opening is None or closing < opening.end():
+        raise SystemExit(f"{report}: expected a <testsuites> root element")
+
+    content = xml[opening.end() : closing]
+    if re.search(r"<testsuite\b", content):
         return
-    if root.tag != "testsuites":
-        raise SystemExit(f"{report}: expected <testsuites> or <testsuite>, got <{root.tag}>")
 
-    cases = root.findall("testcase")
-    if not cases:
-        if root.findall("testsuite"):
-            return
+    def count(tag: str) -> int:
+        return len(re.findall(rf"<{tag}(?:\s|/?>)", content))
+
+    tests = count("testcase")
+    if tests == 0:
         raise SystemExit(f"{report}: no <testcase> or <testsuite> entries found")
 
-    suite = ET.Element("testsuite", name="node:test")
-    for case in cases:
-        root.remove(case)
-        suite.append(case)
-
-    suite_cases = suite.findall("testcase")
-    suite.set("tests", str(len(suite_cases)))
-    suite.set("failures", str(sum(case.find("failure") is not None for case in suite_cases)))
-    suite.set("errors", str(sum(case.find("error") is not None for case in suite_cases)))
-    suite.set("skipped", str(sum(case.find("skipped") is not None for case in suite_cases)))
-    suite.set("time", f"{sum(float(case.get('time', '0')) for case in suite_cases):.6f}")
-    root.insert(0, suite)
-
-    tree.write(report, encoding="utf-8", xml_declaration=True)
-    print(f"Normalized {report}: {len(suite_cases)} Node.js test cases")
+    attributes = (
+        f'name="node:test" tests="{tests}" '
+        f'failures="{count("failure")}" errors="{count("error")}" '
+        f'skipped="{count("skipped")}"'
+    )
+    normalized = (
+        xml[: opening.end()]
+        + f"<testsuite {attributes}>"
+        + content
+        + "</testsuite>"
+        + xml[closing:]
+    )
+    report.write_text(normalized, encoding="utf-8")
+    print(f"Normalized {report}: {tests} Node.js test cases")
 
 
 if __name__ == "__main__":
