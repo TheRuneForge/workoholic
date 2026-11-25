@@ -68,13 +68,13 @@ jobs:
           MERGIFY_TEST_JOB_NAME: test (web)
         run: npm test
 
-      - name: Mergify CI Upload
-        if: (success() || failure()) && hashFiles('junit.xml') != ''
+      - name: Mergify Test Engine Upload (Node.js tests)
+        if: (success() || failure()) && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) && hashFiles('junit.xml') != ''
         continue-on-error: true
         env:
           MERGIFY_TEST_JOB_NAME: test (node)
         run: |
-          pipx run --spec mergify-cli==2026.11.8 mergify ci junit-process junit.xml
+          pipx run --spec mergify-cli==2026.11.17 mergify ci junit-process junit.xml
 
       - name: Typecheck
         run: npm run typecheck
