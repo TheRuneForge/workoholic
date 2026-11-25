@@ -1,7 +1,6 @@
 
-// tools/deploy.sh renders a temporary copy, applies D1 migrations and hands
-// the copy to wrangler; the Deploy workflow feeds it every declared value from
-// the repository secrets.
+// tools/deploy.sh remains the local/manual deployment path. Workers Builds
+// prepares the same placeholders through setup.mjs before Wrangler deploys.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -30,7 +29,7 @@ function deploy(args, env = {}) {
   const result = spawnSync("sh", [join(root, "tools/deploy.sh"), ...args], {
     cwd: root,
     encoding: "utf8",
-    env: { ...clean, ...env, PATH: `${dir}:${process.env.PATH}`, DEPLOY_LOG: log },
+    env: { ...clean, ...env, TMPDIR: tmpdir(), PATH: `${dir}:${process.env.PATH}`, DEPLOY_LOG: log },
   });
   const called = existsSync(log);
   const lines = called ? readFileSync(log, "utf8").trimEnd().split("\n") : [];
@@ -132,21 +131,36 @@ test("refuses to upload without the Cloudflare Access values", (t) => {
   assert.equal(filled.status, 0, filled.stderr);
 });
 
-test("the Deploy workflow passes every declared value and the Cloudflare token", () => {
-  const workflow = readFileSync(join(root, ".github/workflows/deploy.yml"), "utf8");
-  const deployStep = workflow.slice(workflow.indexOf("- run: sh tools/deploy.sh"));
-  assert.notEqual(deployStep, workflow, "deploy step is missing");
-  for (const name of [...declared, "CLOUDFLARE_API_TOKEN"]) {
-    const fallback =
-      name === "D1_DATABASE_NAME" ? " || 'workoholic'" :
-      name === "SITE_FAMILY" ? " || 'Workoholic'" : "";
-    const expected = "          " + name + ": $" + "{{ secrets." + name + fallback + " }}\n";
-    assert.ok(
-      deployStep.includes(expected),
-      name + " is missing its expected assignment from the deploy step's env",
-    );
-  }
-  assert.match(workflow, /run: sh tools\/deploy\.sh\n/);
-  // Only the deploy step sees the values, not the install and test steps.
-  assert.doesNotMatch(workflow, /^    env:/m);
+test("Workers Builds performs resource setup and migrations in the deploy phase", () => {
+  const packageJson = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  const lock = JSON.parse(readFileSync(join(root, "package-lock.json"), "utf8"));
+  const setup = readFileSync(join(root, "tools/setup.mjs"), "utf8");
+  const renderer = readFileSync(join(root, "tools/render.mjs"), "utf8");
+  const configSources = [
+    "wrangler.jsonc",
+    "apps/web/src/runtime-config.ts",
+    "apps/web/src/auth-ui.ts",
+    "apps/web/public/index.html",
+    "apps/web/public/assets/dashboard.js",
+  ].map((file) => readFileSync(join(root, file), "utf8")).join("\\n");
+  assert.equal(packageJson.scripts.postinstall, undefined, "setup must not run during npm install");
+  assert.equal(lock.packages[""].hasInstallScript, undefined, "lockfile must not advertise an install script");
+  assert.match(setup, /const BUILD_COMMAND = "npm ci --legacy-peer-deps"/);
+  assert.match(setup, /const DEPLOY_COMMAND = "node tools\/setup\.mjs --workers-build && npm exec -- wrangler deploy"/);
+  assert.match(setup, /CLOUDFLARE_API_TOKEN/);
+  assert.match(setup, /const rawSettings = await kvText/);
+  assert.ok(setup.includes("savedSettings.PUBLIC_HOST"));
+  assert.ok(setup.includes("savedSettings.CONFIG_NAMESPACE"));
+  assert.ok(setup.includes('host.endsWith(".workers.dev")'));
+  assert.match(setup, /\/d1\/database/);
+  assert.match(setup, /\/secrets_store\/stores/);
+  assert.match(setup, /\/storage\/kv\/namespaces/);
+  assert.match(setup, /values\/settings/);
+  assert.match(setup, /tools\/render\.mjs/);
+  assert.match(setup, /const renderDir = "build"/);
+  assert.match(setup, /cpSync\(renderDir, root/);
+  assert.ok(setup.indexOf('cpSync(renderDir, root') < setup.indexOf('wrangler(["d1", "migrations", "apply"'));
+  assert.match(renderer, /readKvValues/);
+  assert.match(renderer, /settings/);
+  for (const name of declared) assert.ok(configSources.includes(`__${name}__`), name + " placeholder is missing from Worker configuration sources");
 });
