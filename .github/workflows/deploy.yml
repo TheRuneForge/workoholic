@@ -60,16 +60,29 @@ jobs:
     needs: configured
     if: needs.configured.outputs.ready == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - name: Install Node.js and npm from Ubuntu APT
+      - name: Install Node.js, npm and pipx from Ubuntu APT
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends nodejs npm
+          sudo apt-get install --yes --no-install-recommends nodejs npm pipx
       - run: npm ci --ignore-scripts --legacy-peer-deps
-      - run: npm test
+      - name: Run tests
+        id: tests
+        env:
+          MERGIFY_TEST_JOB_NAME: deploy (web)
+        run: npm test
+      - name: Mergify Test Engine Upload (Node.js tests)
+        if: (success() || failure()) && hashFiles('junit.xml') != ''
+        env:
+          MERGIFY_TEST_JOB_NAME: deploy (node)
+        run: |
+          pipx run --spec mergify-cli==2026.11.17 mergify ci junit-process junit.xml
       - run: sh tools/deploy.sh
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
