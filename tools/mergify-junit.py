@@ -3,11 +3,10 @@
 
 from pathlib import Path
 import re
-import sys
 
 
 def main() -> None:
-    report = Path(sys.argv[1] if len(sys.argv) > 1 else "junit.xml")
+    report = Path("junit.xml")
     xml = report.read_text(encoding="utf-8")
 
     opening = re.search(r"<testsuites(?:\s[^>]*)?>", xml)
