@@ -13,8 +13,10 @@ test("Workoholic tracked production config cannot be sanitized into a preview-on
   assert.equal(config.observability?.logs?.enabled, true);
   assert.equal(config.observability?.logs?.invocation_logs, true);
   assert.equal(config.observability?.logs?.head_sampling_rate, 1);
+  assert.equal(config.observability?.logs?.persist, true);
   assert.equal(config.observability?.traces?.enabled, true);
   assert.equal(config.observability?.traces?.head_sampling_rate, 0.05);
+  assert.equal(config.observability?.traces?.persist, true);
   assert.equal(config.observability?.redact_query_string, true);
   assert.ok(config.d1_databases?.some((binding) => binding.binding === "DB"));
   assert.ok(config.r2_buckets?.some((binding) => binding.binding === "EVIDENCE"));
