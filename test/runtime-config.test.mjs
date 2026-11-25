@@ -6,9 +6,28 @@ async function readWranglerConfig() {
   return JSON.parse(await readFile(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
 }
 
+async function readDockerWranglerConfig() {
+  const template = await readFile(new URL("../docker/wrangler.template.jsonc", import.meta.url), "utf8");
+  return JSON.parse(template.replace("__BROWSER_REMOTE__", "false"));
+}
+
+function assertProductionObservability(config) {
+  assert.equal(config.observability?.enabled, true);
+  assert.equal(config.observability?.logs?.enabled, true);
+  assert.equal(config.observability?.logs?.invocation_logs, true);
+  assert.equal(config.observability?.logs?.head_sampling_rate, 1);
+  assert.equal(config.observability?.logs?.persist, true);
+  assert.equal(config.observability?.traces?.enabled, true);
+  assert.equal(config.observability?.traces?.head_sampling_rate, 0.05);
+  assert.equal(config.observability?.traces?.persist, true);
+  assert.equal(config.observability?.issues?.enabled, true);
+  assert.equal(config.observability?.redact_query_string, true);
+}
+
 test("Workoholic tracked production config cannot be sanitized into a preview-only config", async () => {
   const config = await readWranglerConfig();
   assert.equal(config.name, "workoholic");
+  assertProductionObservability(config);
   assert.equal(config.observability?.enabled, true);
   assert.equal(config.observability?.logs?.enabled, true);
   assert.equal(config.observability?.logs?.invocation_logs, true);
@@ -39,4 +58,10 @@ test("Workoholic encrypts runtime configuration with a dedicated rotating key", 
   assert.equal(byBinding.WORKOHOLIC_CONFIG_KEY, "WORKOHOLIC_CONFIG_KEY");
   // Only bound while a rotation is in progress.
   assert.equal(byBinding.WORKOHOLIC_CONFIG_KEY_PREVIOUS, undefined);
+});
+
+
+test("Docker Worker template enables the same production observability safeguards", async () => {
+  const config = await readDockerWranglerConfig();
+  assertProductionObservability(config);
 });
