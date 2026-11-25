@@ -21,6 +21,9 @@
       "head_sampling_rate": 0.05,
       "persist": true
     },
+    "issues": {
+      "enabled": true
+    },
     "redact_query_string": true
   },
   "routes": [
