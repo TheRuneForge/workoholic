@@ -1215,9 +1215,6 @@ async function findMatchedJobsNavigation(
       },
     };
   }
-  if (invalidReason) {
-    return { status: "invalid", reason: invalidReason, path: invalidPath };
-  }
   if (validUrls.size !== 1) {
     return { status: "invalid", reason: "ambiguous" };
   }
