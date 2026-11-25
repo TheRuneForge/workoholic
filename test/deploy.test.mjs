@@ -21,7 +21,7 @@ function deploy(args, env = {}) {
   const log = join(dir, "log");
   writeFileSync(
     join(dir, "npm"),
-    '#!/bin/sh\nif [ "$1" = "ci" ]; then exit 0; fi\nif [ "$1" = "exec" ] && [ "$2" = "--" ]; then shift 2; fi\n{ pwd; echo "$*"; } >>"$DEPLOY_LOG"\ncp wrangler.jsonc "$DEPLOY_LOG.jsonc"\necho "${CLOUDFLARE_ACCOUNT_ID:-}" >"$DEPLOY_LOG.account"\n',
+    '#!/bin/sh\nif [ "$1" = "ci" ]; then exit 0; fi\nif [ "$1" = "run" ] && [ "$2" = "--silent" ] && [ "$3" = "--workspace" ] && [ "$4" = "@workoholic/web" ] && [ "$5" = "wrangler" ] && [ "$6" = "--" ]; then shift 6; set -- wrangler "$@"; fi\n{ pwd; echo "$*"; } >>"$DEPLOY_LOG"\ncp wrangler.jsonc "$DEPLOY_LOG.jsonc"\necho "${CLOUDFLARE_ACCOUNT_ID:-}" >"$DEPLOY_LOG.account"\n',
     { mode: 0o755 },
   );
   const clean = Object.fromEntries(

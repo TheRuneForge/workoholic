@@ -82,9 +82,6 @@ fi
 if [ ! -d node_modules/wrangler ]; then
   npm ci --ignore-scripts --legacy-peer-deps
 fi
-wrangler="$(pwd)/node_modules/.bin/wrangler"
-[ -x "$wrangler" ] || { echo "Wrangler is not installed in node_modules." >&2; exit 1; }
-
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 
@@ -97,5 +94,5 @@ grep -q '"WORKOHOLIC_CONFIG_KEY"' wrangler.jsonc || {
   exit 1
 }
 
-[ -n "$dry_run" ] || "$wrangler" d1 migrations apply DB --remote
-"$wrangler" deploy "$@"
+[ -n "$dry_run" ] || npm run --silent --workspace @workoholic/web wrangler -- d1 migrations apply DB --remote
+npm run --silent --workspace @workoholic/web wrangler -- deploy "$@"
