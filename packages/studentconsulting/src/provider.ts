@@ -845,9 +845,19 @@ export function parseStudentConsultingJobText(bodyText: string): ParsedStudentCo
 }
 
 export function containsExactJobId(text: string, externalId: string): boolean {
-  const escaped = escapeRegExp(externalId.trim());
-  if (!escaped) return false;
-  return new RegExp(`(?:^|\\D)${escaped}(?:\\D|$)`).test(text);
+  const id = externalId.trim();
+  if (!id || id.length > 128) return false;
+
+  let offset = 0;
+  while ((offset = text.indexOf(id, offset)) !== -1) {
+    const before = offset === 0 ? "" : text[offset - 1];
+    const after = text[offset + id.length] ?? "";
+    if ((!before || !/[0-9]/.test(before)) && (!after || !/[0-9]/.test(after))) {
+      return true;
+    }
+    offset += id.length;
+  }
+  return false;
 }
 
 export function normalizeStudentConsultingUrl(value: string): string | null {
@@ -1817,15 +1827,16 @@ function readFact(text: string, label: string): string | undefined {
     .filter(Boolean);
   const normalizedLabel = normalize(label);
 
-  const inlinePattern = new RegExp(`^${escapeRegExp(label)}(?:\\s*[:–-]\\s*|\\s+)(.+)$`, "i");
-
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     const normalizedLine = normalize(line);
     if (normalizedLine === normalizedLabel) return lines[index + 1];
 
-    const inlineMatch = line.match(inlinePattern);
-    const value = inlineMatch?.[1]?.trim();
+    if (!line.toLocaleLowerCase().startsWith(label.toLocaleLowerCase())) continue;
+    const remainder = line.slice(label.length);
+    const separator = remainder.match(/^\s*[:–-]\s*|^\s+/);
+    if (!separator) continue;
+    const value = remainder.slice(separator[0].length).trim();
     if (value) return value;
   }
   return undefined;
