@@ -42,3 +42,11 @@ test("never accepts a report path from a command-line argument", (t) => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.xml, /name="safe"/);
 });
+
+test("rejects DTDs and external entities", (t) => {
+  const input = '<!DOCTYPE testsuites [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>' +
+    '<testsuites><testcase name="&xxe;"/></testsuites>';
+  const result = normalize(t, input);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /DTDForbidden|EntitiesForbidden/);
+});

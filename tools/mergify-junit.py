@@ -2,14 +2,14 @@
 """Wrap Node.js built-in JUnit test cases in a standard JUnit testsuite."""
 
 from pathlib import Path
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 
 
 def main() -> None:
     # The report path is deliberately fixed: never accept a path from test data
     # or a command-line argument in this CI helper.
     report = Path("junit.xml")
-    parser = ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))
+    parser = ET.XMLParser(target=ET._TreeBuilder(insert_comments=True), forbid_dtd=True)
     tree = ET.parse(report, parser=parser)
     root = tree.getroot()
 
@@ -25,7 +25,7 @@ def main() -> None:
     if not cases:
         return
 
-    suite = ET.Element("testsuite", name="node:test")
+    suite = root.makeelement("testsuite", {"name": "node:test"})
     for case in cases:
         root.remove(case)
         suite.append(case)

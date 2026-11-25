@@ -57,10 +57,15 @@ jobs:
       - name: Install Node.js, npm and pipx from Ubuntu APT
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends nodejs npm pipx
+          sudo apt-get install --yes --no-install-recommends nodejs npm pipx python3-pip
 
       - name: Install project dependencies
         run: npm ci --ignore-scripts --legacy-peer-deps
+
+      - name: Install the secure JUnit XML parser
+        run: |
+          python3 -m pip install --disable-pip-version-check --target "$RUNNER_TEMP/mergify-report" -r requirements-test.txt
+          echo "PYTHONPATH=$RUNNER_TEMP/mergify-report" >> "$GITHUB_ENV"
 
       - name: Run tests
         id: tests

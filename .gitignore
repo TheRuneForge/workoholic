@@ -156,8 +156,8 @@ vite.config.ts.timestamp-*
 __MACOSX/
 .AppleDouble
 .LSOverride
-Icon[
-]
+# macOS custom folder icons
+Icon
 
 # Resource forks
 ._*
