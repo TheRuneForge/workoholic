@@ -497,7 +497,7 @@ function runRow(r) {
     "</td><td>" +
     (r.probe_status ? badge(r.probe_status) : "") +
     '</td><td class="' +
-    runMessageClass(r) +
+    runMessageClass() +
     '">' +
     esc(runError(r)) +
     '</td><td><button class="secondary runDetail" data-id="' +
@@ -523,7 +523,7 @@ function runCard(r) {
     "</span><span><small>Probe</small>" +
     (r.probe_status ? badge(r.probe_status) : '<span class="muted">—</span>') +
     "</span></div>" +
-    (error ? '<p class="' + runMessageClass(r) + '">' + esc(error) + "</p>" : "") +
+    (error ? '<p class="' + runMessageClass() + '">' + esc(error) + "</p>" : "") +
     '<button class="secondary runDetail" data-id="' +
     esc(r.id) +
     '">Detaljer</button></article>'
@@ -949,7 +949,7 @@ async function openRun(id) {
       '<p class="mono">' +
       esc(d.run.workflow_instance_id || "") +
       '</p><p class="' +
-      runMessageClass(d.run) +
+      runMessageClass() +
       '">' +
       esc(d.run.last_error || "") +
       "</p>" +
