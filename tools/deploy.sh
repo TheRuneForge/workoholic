@@ -10,6 +10,7 @@
 # Worker is uploaded. Arguments after the values file go to `wrangler deploy`,
 # for example --dry-run.
 set -eu
+
 case "${1:-}" in
   "" | -*)
     values=-
@@ -21,13 +22,18 @@ case "${1:-}" in
     shift
     ;;
 esac
+
 cd "$(dirname "$0")/.."
 
 if [ "$values" = - ]; then
   # A name that is not set counts as empty, so only your own values are needed.
   found=
   for name in $(sed -n 's/^\([A-Z][A-Z0-9_]*\)=.*/\1/p' cloudflare.example.env); do
-    if [ -n "$(printenv "$name" || true)" ]; then found=1; else export "$name="; fi
+    if [ -n "$(printenv "$name" || true)" ]; then
+      found=1
+    else
+      export "$name="
+    fi
   done
   [ -n "$found" ] || {
     echo "No values found. Pass a values file, or set the variables named in cloudflare.example.env." >&2
@@ -62,6 +68,7 @@ dry_run=
 for arg in "$@"; do
   [ "$arg" != --dry-run ] || dry_run=1
 done
+
 if [ -z "$dry_run" ]; then
   # Sign-in goes through Cloudflare Access; without these nobody gets in.
   for name in CF_ACCESS_TEAM_DOMAIN CF_ACCESS_AUD; do
@@ -73,11 +80,11 @@ if [ -z "$dry_run" ]; then
 fi
 
 if [ ! -d node_modules/wrangler ]; then
-  command -v pnpm >/dev/null || corepack enable
-  pnpm install --frozen-lockfile
+  npm ci --ignore-scripts --legacy-peer-deps
 fi
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
+
 node tools/render.mjs "$values" "$out/app" >/dev/null
 cd "$out/app"
 
@@ -87,5 +94,5 @@ grep -q '"WORKOHOLIC_CONFIG_KEY"' wrangler.jsonc || {
   exit 1
 }
 
-[ -n "$dry_run" ] || npx wrangler d1 migrations apply DB --remote
-npx wrangler deploy "$@"
+[ -n "$dry_run" ] || npm run --silent --workspace @workoholic/web wrangler -- d1 migrations apply DB --remote
+npm run --silent --workspace @workoholic/web wrangler -- deploy "$@"

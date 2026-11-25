@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Upload secrets for the deployed Worker from secrets.env.
 //
-//   pnpm secrets:push
+//   npm run secrets:push
 //
 // secrets.env (git-ignored, in the repository root) holds NAME=value lines, for
 // example STUDENTCONSULTING_EMAIL, STUDENTCONSULTING_PASSWORD or SMTP_PASSWORD.
@@ -42,7 +42,7 @@ if (!names.length) {
 
 // Built by hand from the Map so no object property is ever written by name.
 const body = `{${[...secrets].map(([name, value]) => `${JSON.stringify(name)}:${JSON.stringify(value)}`).join(",")}}`;
-const run = spawnSync("pnpm", ["exec", "wrangler", "secret", "bulk", "--name", "workoholic"], {
+const run = spawnSync("npm", ["exec", "--", "wrangler", "secret", "bulk", "--name", "workoholic"], {
   cwd: root,
   input: body,
   encoding: "utf8",
