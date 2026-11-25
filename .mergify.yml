@@ -1,20 +1,3 @@
-merge_queue:
-  mode: serial
-  max_parallel_checks: 1
-  queue_controls_comment: true
-  status_comments: outcomes
-
-queue_rules:
-  - name: main
-    merge_method: squash
-    batch_size: 5
-    queue_conditions:
-      - base = main
-      - -draft
-    merge_conditions:
-      - base = main
-      - check-success = test
-
 priority_rules:
   - name: security-updates
     conditions:
@@ -23,13 +6,6 @@ priority_rules:
     priority: high
 
 pull_request_rules:
-  - name: automatically queue pull requests
-    conditions:
-      - base = main
-      - -draft
-    actions:
-      queue:
-
   - name: Keep PRs up to date
     conditions:
       - -draft
