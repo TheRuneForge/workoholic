@@ -27,6 +27,7 @@ function assertProductionObservability(config) {
 test("Workoholic tracked production config cannot be sanitized into a preview-only config", async () => {
   const config = await readWranglerConfig();
   assert.equal(config.name, "workoholic");
+  assertProductionObservability(config);
   assert.equal(config.observability?.enabled, true);
   assert.equal(config.observability?.logs?.enabled, true);
   assert.equal(config.observability?.logs?.invocation_logs, true);
