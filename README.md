@@ -2,20 +2,19 @@
 
 Söker jobb åt dig hos StudentConsulting, högst tio per kalendermånad, och samlar dem i en textfil. Appen är en Cloudflare Worker med D1, R2, Workflows och Browser Rendering, och är uppdelad i en npm-arbetsyta: `apps/web`, `packages/core` och `packages/studentconsulting`.
 
-Alla inställningar är platshållare av typen `__NAMN__`, så ingen miljöspecifik uppgift ligger i koden: dina egna värden ligger i en fil som git ignorerar, i hemligheter i GitHub Actions eller i byggvariabler hos Cloudflare. Din inloggning hos StudentConsulting och övriga hemligheter fyller du i i appen, där de lagras krypterade.
+Alla miljöspecifika inställningar är platshållare av typen `__NAMN__`. Vid Cloudflare Workers Builds hämtar deploy-steget resurs-ID:n och övriga inställningar via Workerns Build-token, återställer sparade inställningar från KV och fyller i `wrangler.jsonc` före driftsättningen. Vid lokal Wrangler-driftsättning använder du en egen, git-ignorerad värdefil. Din inloggning hos StudentConsulting och övriga hemligheter fyller du i i appen, där de lagras krypterade.
 
 ## Kör en egen kopia
 
-Det finns fyra sätt, och alla ger samma app. Välj ett.
+Det finns tre sätt, och alla ger samma app. Välj ett.
 
 | Sätt | Du behöver | Körs på |
 |---|---|---|
 | [Docker](#docker) | Docker | Din egen dator eller server |
 | [Direkt med Wrangler](#direkt-med-wrangler) | Node.js 22.12 eller nyare, ett Cloudflare-konto | Cloudflare |
-| [GitHub Actions](#github-actions) | Ett GitHub-konto, ett Cloudflare-konto | Cloudflare, vid varje push till `main` |
 | [Cloudflare Workers Builds](#cloudflare-workers-builds) | Ett GitHub- eller GitLab-konto, ett Cloudflare-konto | Cloudflare, vid varje push till `main` |
 
-Ett GitHub-konto behövs bara för de två sista. För de två första räcker det att ladda ned källkoden som ZIP-fil eller klona den.
+Ett GitHub-konto behövs för Workers Builds. För Docker och lokal Wrangler räcker det att ladda ned källkoden som ZIP-fil eller klona den.
 
 ### Docker
 
@@ -29,7 +28,7 @@ Porten publiceras bara på den här datorn. För att nå appen från andra dator
 
 ### Dina värden hos Cloudflare
 
-De tre Cloudflare-sätten använder samma värden. De står i `cloudflare.example.env`:
+Värdena i `cloudflare.example.env` används vid lokal Wrangler-driftsättning. Workers Builds hämtar resursvärdena från Cloudflare automatiskt i deploy-steget.
 
 | Namn | Värde |
 |---|---|
@@ -87,32 +86,32 @@ sh tools/deploy.sh .cloudflare.env
 
 Kör det sista kommandot igen när du vill driftsätta en nyare version. `tools/deploy.sh` fyller i värdena i en tillfällig kopia, kör nya databasmigreringar, driftsätter kopian och tar bort den. Extra argument går vidare till `wrangler deploy`; `sh tools/deploy.sh .cloudflare.env --dry-run` bygger utan att röra databasen eller ladda upp något. Om `.cloudflare.env` också har raderna `CLOUDFLARE_API_TOKEN=...` och `CLOUDFLARE_ACCOUNT_ID=...` används de, och `wrangler login` behövs inte; om någon av de två redan är exporterad i skalet går det värdet före filen.
 
-### GitHub Actions
-
-Forka repot, eller pusha en kopia till ditt eget konto. Fyll i `.cloudflare.env` som ovan och lägg till raderna `CLOUDFLARE_API_TOKEN=...` och `CLOUDFLARE_ACCOUNT_ID=...`. Spara sedan alla värden som hemligheter i repot med [GitHub CLI](https://cli.github.com/):
-
-```sh
-grep -v '=$' .cloudflare.env | gh secret set -f - -R ditt-konto/workoholic
-```
-
-Samma sak går att göra för hand under Settings → Secrets and variables → Actions. Därefter driftsätter arbetsflödet Deploy varje push till `main`, och det kan startas för hand under Actions → Deploy → Run workflow. Värdena skrivs aldrig till någon fil i repot och GitHub maskerar dem i loggarna. Utan hemligheten `CLOUDFLARE_API_TOKEN` gör arbetsflödet ingenting.
-
 ### Cloudflare Workers Builds
 
-Skapa en Worker med namnet `workoholic` från ditt repo i Cloudflares kontrollpanel (Workers & Pages → Create → Import a repository) och ange:
+Skapa en Worker med namnet `workoholic` från ditt repo i Cloudflares kontrollpanel (Workers & Pages → Create → Import a repository). Använd följande kommandon under Settings → Builds:
 
-- Deploy command: `sh tools/deploy.sh`
-- Eller ändra ingenting: med standardkommandot `npm exec -- wrangler deploy` och bygget API-token (den behöver D1: Edit, Workers Scripts: Edit, Workers KV Storage: Edit, Workers R2 Storage: Edit och Secrets Store: Edit) skapar bygget själv D1-databasen, nyckeln i Secrets Store och KV-inställningarna, fyller i platshållarna och kör migreringarna (`postinstall` kör `tools/setup.mjs --workers-build`, bara i Workers Builds av `main`). Workern nås på sin workers.dev-adress med lösenordsinloggning; det genererade lösenordet ligger i KV-namnrymden `workoholic-config`, nyckeln `first-login` (spara det och radera nyckeln). Vid första bygget finns Workern ännu inte, så lösenordssteget kan skjutas upp: står `Login secrets were not set this time` i bygglogen, starta ett nytt bygge och läs sedan lösenordet i KV. Sätt build-variabeln `PUBLIC_HOST` för att använda din egen domän.
-- Build variables and secrets: varje namn i tabellen ovan med ditt värde
-- API token: den token du skapade ovan; den token som Cloudflare skapar själv kan varken köra D1-migreringar eller binda Secrets Store
-- Settings → Build → Branch control: stäng av Enable Preview Builds
+```sh
+Build command: npm ci --legacy-peer-deps
+Deploy command: node tools/setup.mjs --workers-build && npm exec -- wrangler deploy
+```
 
-Cloudflare driftsätter sedan varje push till `main`. Använd antingen detta eller GitHub Actions, inte båda, annars driftsätts varje push två gånger.
+Workers Builds har två separata faser. Build command installerar bara de låsta beroendena: `npm ci --legacy-peer-deps`. Deploy command kör sedan `node tools/setup.mjs --workers-build && npm exec -- wrangler deploy`. I den fasen hämtar skriptet resurs-ID:n och övriga inställningar med Workerns valda Build-token, skapar resurser som saknas, sparar icke-hemliga inställningar i KV och fyller i `wrangler.jsonc`. Därefter tillämpas D1-migreringarna och Wrangler driftsätter den färdiga konfigurationen. Inga manuellt inmatade Workers Build-variabler eller GitHub-hemligheter behövs.
+
+Om ingen egen `PUBLIC_HOST` har konfigurerats använder installationen kontots workers.dev-adress. Inloggning använder lösenord som standard; första lösenordet publiceras till KV-namnrymden `workoholic-config`, nyckeln `first-login`. Spara det och radera sedan nyckeln. Om första bygget säger `Login secrets were not set this time` kan Workern behöva finnas efter första deployen; nästa bygge försöker igen.
+
+Inga variabelvärden behöver anges för standardinstallationen. Sparade inställningar läses från KV vid varje nytt bygge och skrivs inte över av standardvärden. Vill du anpassa installationen kan du ange `PUBLIC_HOST`, `D1_DATABASE_NAME`, `CONFIG_NAMESPACE`, `SITE_FAMILY`, `THEME_KEY_PREFIX` eller `THEME_COOKIE_DOMAIN` som Workers Build variables. De värdena får företräde framför sparade inställningar. `D1_DATABASE_ID` och `SECRETS_STORE_ID` hämtas automatiskt och ska inte anges manuellt.
+
+Build-token måste ha behörighet för resurserna som konfigurationen hanterar. Cloudflares automatiskt skapade token har normalt Workers Scripts, KV, R2 och Routes, men saknar D1 och Secrets Store. Lägg till **D1: Edit** och **Secrets Store: Edit** på just den token som valts under Settings → Builds → API token. Inga variabelvärden behöver läggas in manuellt.
+
+Under Settings → Build → Branch control ska Enable Preview Builds vara avstängt. Setup-flödet är avsiktligt begränsat till produktionsgrenen eftersom det skapar och migrerar produktionsresurser.
 
 ## Utveckla
 
 ```sh
 npm ci --legacy-peer-deps
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements-test.txt
 npm test
 npm run typecheck
 ```

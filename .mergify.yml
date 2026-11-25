@@ -14,6 +14,13 @@ queue_rules:
     merge_conditions:
       - base = main
       - check-success = test
+      # A green test job is necessary but not sufficient: wait for every other
+      # check and block on any failure, neutral result, or stale result.
+      # Exclude Mergify's own checks to avoid a self-referential queue condition.
+      - -check-failure ~= ^(?!Mergify|Summary).+
+      - -check-pending ~= ^(?!Mergify|Summary).+
+      - -check-neutral ~= ^(?!Mergify|Summary).+
+      - -check-stale ~= ^(?!Mergify|Summary).+
 
 priority_rules:
   - name: security-updates

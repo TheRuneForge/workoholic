@@ -40,6 +40,7 @@ build/Release
 
 # Dependency directories
 node_modules/
+.venv/
 jspm_packages/
 
 # Snowpack dependency directory (https://snowpack.dev/)
@@ -156,8 +157,8 @@ vite.config.ts.timestamp-*
 __MACOSX/
 .AppleDouble
 .LSOverride
-Icon[
-]
+# macOS custom folder icons
+Icon*
 
 # Resource forks
 ._*
