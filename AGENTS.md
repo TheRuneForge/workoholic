@@ -22,7 +22,7 @@ GitHub status labels and summary states are metadata, not proof of the underlyin
 
 - Inspect the complete conflict details and conflict markers, both sides of each conflict, the base and head revisions, merge base, changed files, and relevant diffs. Understand the intent of both sides before resolving; never choose `ours` or `theirs` blindly.
 - Do not assume that an `update branch` event, a changed conflict indicator, or an `outdated` review thread means the conflict or finding is resolved.
-- After resolution, inspect the resulting diff and code to verify that both sides' intended behavior is preserved and unrelated work has not been lost. Run relevant checks.
+- After resolution, inspect the resulting diff and code to verify that the result reflects the agreed intent of both sides, that unrelated work has not been lost, and that any deliberate removal or change in behavior is the agreed outcome. Run relevant checks.
 
 ### Evidence and conclusions
 
