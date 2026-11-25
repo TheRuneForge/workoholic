@@ -1,3 +1,4 @@
+
 // tools/deploy.sh renders a temporary copy, applies D1 migrations and hands
 // the copy to wrangler; the Deploy workflow feeds it every declared value from
 // the repository secrets.
@@ -13,17 +14,14 @@ const declared = [
   ...readFileSync(join(root, "cloudflare.example.env"), "utf8").matchAll(/^([A-Z][A-Z0-9_]*)=/gm),
 ].map((match) => match[1]);
 
-// Runs deploy.sh with stand-ins for pnpm, corepack and npx, so nothing is
-// installed or uploaded. The npx stand-in records where and how wrangler was
-// called.
+// Runs deploy.sh with an npm stand-in, so nothing is installed or uploaded.
+// The stand-in records where and how wrangler was called.
 function deploy(args, env = {}) {
   const dir = mkdtempSync(join(tmpdir(), "deploy-test-"));
   const log = join(dir, "log");
-  for (const name of ["pnpm", "corepack"])
-    writeFileSync(join(dir, name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   writeFileSync(
-    join(dir, "npx"),
-    '#!/bin/sh\n{ pwd; echo "$*"; } >>"$DEPLOY_LOG"\ncp wrangler.jsonc "$DEPLOY_LOG.jsonc"\necho "${CLOUDFLARE_ACCOUNT_ID:-}" >"$DEPLOY_LOG.account"\n',
+    join(dir, "npm"),
+    '#!/bin/sh\nif [ "$1" = "ci" ]; then exit 0; fi\nif [ "$1" = "run" ] && [ "$2" = "--silent" ] && [ "$3" = "--workspace" ] && [ "$4" = "@workoholic/web" ] && [ "$5" = "wrangler" ] && [ "$6" = "--" ]; then shift 6; set -- wrangler "$@"; fi\n{ pwd; echo "$*"; } >>"$DEPLOY_LOG"\ncp wrangler.jsonc "$DEPLOY_LOG.jsonc"\necho "${CLOUDFLARE_ACCOUNT_ID:-}" >"$DEPLOY_LOG.account"\n',
     { mode: 0o755 },
   );
   const clean = Object.fromEntries(
@@ -136,11 +134,18 @@ test("refuses to upload without the Cloudflare Access values", (t) => {
 
 test("the Deploy workflow passes every declared value and the Cloudflare token", () => {
   const workflow = readFileSync(join(root, ".github/workflows/deploy.yml"), "utf8");
-  for (const name of [...declared, "CLOUDFLARE_API_TOKEN"])
+  const deployStep = workflow.slice(workflow.indexOf("- run: sh tools/deploy.sh"));
+  assert.notEqual(deployStep, workflow, "deploy step is missing");
+  for (const name of [...declared, "CLOUDFLARE_API_TOKEN"]) {
+    const fallback =
+      name === "D1_DATABASE_NAME" ? " || 'workoholic'" :
+      name === "SITE_FAMILY" ? " || 'Workoholic'" : "";
+    const expected = "          " + name + ": $" + "{{ secrets." + name + fallback + " }}\n";
     assert.ok(
-      workflow.includes(`      ${name}: \${{ secrets.${name} }}\n`),
-      `${name} is missing from the deploy job's env`,
+      deployStep.includes(expected),
+      name + " is missing its expected assignment from the deploy step's env",
     );
+  }
   assert.match(workflow, /run: sh tools\/deploy\.sh\n/);
   // Only the deploy step sees the values, not the install and test steps.
   assert.doesNotMatch(workflow, /^    env:/m);

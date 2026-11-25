@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/app
 COPY . .
-RUN npm install -g corepack && corepack enable && pnpm install --frozen-lockfile
-RUN mkdir -p /data && chown node:node /data /srv
+RUN npm ci --ignore-scripts --legacy-peer-deps
+RUN mkdir -p /data /srv && chown node:node /data /srv
 USER node
 VOLUME /data
 EXPOSE 8787

@@ -14,7 +14,6 @@ queue_rules:
     merge_conditions:
       - base = main
       - check-success = test
-      - "#approved-reviews-by >= 2"
 
 priority_rules:
   - name: security-updates
@@ -37,15 +36,6 @@ pull_request_rules:
       - "#commits-behind >= 1"
     actions:
       update:
-
-  - name: Request reviews automatically
-    conditions:
-      - -draft
-      - "#review-requested = 0"
-    actions:
-      request_reviews:
-        teams:
-          - ai
 
   - name: Label web app changes
     conditions:

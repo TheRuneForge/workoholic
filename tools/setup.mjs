@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // One-command setup of Workoholic on a Cloudflare account.
 //
-//   pnpm setup:cloudflare            create resources, render, migrate and deploy
-//   pnpm setup:cloudflare --check    only verify the token and show what would be created
+//   npm run setup:cloudflare            create resources, render, migrate and deploy
+//   npm run setup:cloudflare -- --check    only verify the token and show what would be created
 //
 // Input: a temporary setup token (CLOUDFLARE_API_TOKEN) and PUBLIC_HOST, from
 // setup.env or the environment (see setup.example.env). Everything else is
@@ -16,7 +16,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-// The script relies on process groups and on finding pnpm, so it needs macOS, Linux or WSL.
+// The script relies on process groups, so it needs macOS, Linux or WSL.
 if (process.platform === "win32") {
   console.error("✘ Run setup on macOS, Linux or WSL. Windows is not supported.");
   process.exit(1);
@@ -143,7 +143,7 @@ async function stopChildren() {
 
 // Wrangler reads the token from the environment; it is never put on a command line.
 async function wrangler(args, { input } = {}) {
-  const result = await run("pnpm", ["exec", "wrangler", ...args], {
+  const result = await run("npm", ["exec", "--", "wrangler", ...args], {
     input,
     env: { ...process.env, CLOUDFLARE_API_TOKEN: token, ...(accountId && { CLOUDFLARE_ACCOUNT_ID: accountId }), CI: "1" },
   });
@@ -363,41 +363,74 @@ async function main() {
   await loginSecrets();
 
   async function loginSecrets() {
-  const existing = JSON.parse((await wrangler(["secret", "list", "--format", "json", ...cwd])) || "[]").map((s) => s.name);
-  if (auth === "password") {
-    if (!existing.includes("ADMIN_PASSWORD")) {
-      // A build leaves no file behind, so the password is handed over through the
-      // KV namespace, not the build log. It is stored before it is set, and one
-      // that is already waiting there is reused, so a retry or an overlapping
-      // build never ends with a different password than the one published.
-      const kvValues = `/accounts/${account}/storage/kv/namespaces/${kv.id}/values/first-login`;
-      const waiting = workersBuild ? await kvText(kvValues) : "";
-      const password = waiting || randomBytes(18).toString("base64url");
-      if (workersBuild) {
-        if (!waiting) await kvText(kvValues, password);
-      } else {
-        // Saved locally first, so a failed upload or a crash can never lose it.
-        const file = join(root, ".setup-secrets");
-        writeFileSync(file, `ADMIN_PASSWORD=${password}\n`, { mode: 0o600 });
-        chmodSync(file, 0o600);
-      }
-      await wrangler(["secret", "bulk", ...cwd], {
-        input: JSON.stringify({ AUTH_MODE: "password", ADMIN_PASSWORD: password }),
-      });
-      say("✔ Set AUTH_MODE and a generated ADMIN_PASSWORD");
-      say(workersBuild
-        ? `→ Login password: open KV "${KV_TITLE}", key "first-login", save the password, then delete the key.`
-        : "→ The password is in .setup-secrets. Save it in your password manager, then delete the file.");
-    } else if (!existing.includes("AUTH_MODE")) {
-      // The password exists but AUTH_MODE was removed (a switch to Access and back).
-      await wrangler(["secret", "bulk", ...cwd], { input: JSON.stringify({ AUTH_MODE: "password" }) });
-      say("✔ ADMIN_PASSWORD exists (left untouched); set AUTH_MODE=password again");
-    } else say("✔ ADMIN_PASSWORD and AUTH_MODE exist (left untouched)");
-  } else if (existing.includes("AUTH_MODE")) {
-    // Switching to Access: an earlier password setting would still take priority.
-    await wrangler(["secret", "delete", "AUTH_MODE", ...cwd], { input: "y\n" });
-    say("✔ Removed the old AUTH_MODE secret so Cloudflare Access is used");
-  }
+    const existing = JSON.parse((await wrangler(["secret", "list", "--format", "json", ...cwd])) || "[]").map((s) => s.name);
+    if (auth === "password") {
+      if (!existing.includes("ADMIN_PASSWORD")) {
+        const kvPasswordPath = `/accounts/${account}/storage/kv/namespaces/${kv.id}/values/first-login`;
+        let password = await kvText(kvPasswordPath);
+        let localGeneratedPassword = "";
+
+        if (!password) {
+          // Local setup and Workers Builds may overlap. A D1 row arbitrates the
+          // first writer; KV holds the shared password, so both runs upload the
+          // same value. The lease lets another run recover if the winner exits
+          // before publishing it.
+          const d1Path = `/accounts/${account}/d1/database/${database.uuid}/query`;
+          const d1Query = async (sql, params = []) => {
+            const [result] = await api("POST", d1Path, { sql, params });
+            if (!result?.success) throw new Error("D1 setup coordination query failed");
+            return result;
+          };
+          await d1Query(
+            "CREATE TABLE IF NOT EXISTS workoholic_setup_lock (name TEXT PRIMARY KEY, owner TEXT NOT NULL, lease_until INTEGER NOT NULL)",
+          );
+
+          const owner = randomBytes(16).toString("hex");
+          for (let attempt = 0; attempt < 120 && !password; attempt++) {
+            const now = Math.floor(Date.now() / 1000);
+            const claim = await d1Query(
+              "INSERT INTO workoholic_setup_lock (name, owner, lease_until) VALUES ('first-login', ?, ?) ON CONFLICT(name) DO UPDATE SET owner = excluded.owner, lease_until = excluded.lease_until WHERE workoholic_setup_lock.lease_until < ?",
+              [owner, String(now + 90), String(now)],
+            );
+            if ((claim.meta?.changes ?? 0) > 0) {
+              password = randomBytes(18).toString("base64url");
+              await kvText(kvPasswordPath, password);
+              if (!workersBuild) localGeneratedPassword = password;
+              break;
+            }
+            password = await kvText(kvPasswordPath);
+            if (!password) await new Promise((resolveWait) => setTimeout(resolveWait, 1000));
+          }
+          if (!password) {
+            throw new Error("Timed out waiting for the first-login password to be published in KV");
+          }
+        }
+
+        if (localGeneratedPassword) {
+          // Only a value generated by this local process is written to disk.
+          // A password received from KV is never copied into a local file.
+          const file = join(root, ".setup-secrets");
+          writeFileSync(file, `ADMIN_PASSWORD=${localGeneratedPassword}\n`, { mode: 0o600 });
+          chmodSync(file, 0o600);
+        }
+
+        await wrangler(["secret", "bulk", ...cwd], {
+          input: JSON.stringify({ AUTH_MODE: "password", ADMIN_PASSWORD: password }),
+        });
+        say("✔ Set AUTH_MODE and a generated ADMIN_PASSWORD");
+        say(localGeneratedPassword
+          ? "→ The password is in .setup-secrets. KV also holds a temporary copy for overlapping setup runs; delete its first-login key after all setup runs finish."
+          : `→ Login password: open KV "${KV_TITLE}", key "first-login", save the password, then delete the key.`);
+      } else if (!existing.includes("AUTH_MODE")) {
+        // The password exists but AUTH_MODE was removed (a switch to Access and back).
+        await wrangler(["secret", "bulk", ...cwd], { input: JSON.stringify({ AUTH_MODE: "password" }) });
+        say("✔ ADMIN_PASSWORD exists (left untouched); set AUTH_MODE=password again");
+      } else say("✔ ADMIN_PASSWORD and AUTH_MODE exist (left untouched)");
+    } else if (existing.includes("AUTH_MODE")) {
+      // Switching to Access: an earlier password setting would still take priority.
+      await wrangler(["secret", "delete", "AUTH_MODE", ...cwd], { input: "y\n" });
+      say("✔ Removed the old AUTH_MODE secret so Cloudflare Access is used");
+    }
   }
 
   if (workersBuild) return;
@@ -412,7 +445,7 @@ Set these two by hand in Workers & Pages → ${WORKER} → Settings → Builds (
   Deploy command: ${DEPLOY_COMMAND}
 If the build fails at the migration step, select an API token with D1 Edit and Workers Scripts Edit under Settings → Builds → API token (the default build token may lack D1 access).
 If it cannot read the KV settings (it needs Cloudflare credentials to do so), use this build command instead and add these build variables (not secret):
-  Build command : pnpm install --frozen-lockfile && node tools/render.mjs - build
+  Build command : npm ci --legacy-peer-deps && node tools/render.mjs - build
 ${Object.entries(buildVariables).map(([name, value]) => `    ${name}=${value}`).join("\n")}`);
   }
   say(
@@ -422,8 +455,8 @@ ${Object.entries(buildVariables).map(([name, value]) => `    ${name}=${value}`).
   );
 }
 
-const BUILD_COMMAND = `pnpm install --frozen-lockfile && node tools/render.mjs kv:${KV_TITLE} build`;
-const DEPLOY_COMMAND = "npx wrangler d1 migrations apply DB --remote --cwd build && npx wrangler deploy --cwd build";
+const BUILD_COMMAND = `npm ci --legacy-peer-deps && node tools/render.mjs kv:${KV_TITLE} build`;
+const DEPLOY_COMMAND = "npm exec -- wrangler d1 migrations apply DB --remote --cwd build && npm exec -- wrangler deploy --cwd build";
 
 // Returns "" when Workers Builds is configured, otherwise why it was not.
 async function configureWorkersBuilds(account) {
