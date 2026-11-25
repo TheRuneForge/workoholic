@@ -7,17 +7,25 @@ import { connect } from "cloudflare:sockets";
 function encodeHeader(value) {
   return /^[\x20-\x7e]*$/.test(value)
     ? value
-    : `=?UTF-8?B?${btoa(String.fromCharCode(...new TextEncoder().encode(value)))}?=`;
+    : `=?UTF-8?B?${btoa(String.fromCodePoint(...new TextEncoder().encode(value)))}?=`;
 }
 
 function base64Lines(text) {
-  const b64 = btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  const b64 = btoa(String.fromCodePoint(...new TextEncoder().encode(text)));
   return b64.replace(/.{1,76}/g, "$&\r\n").trimEnd();
 }
 
 function address(value) {
-  const match = value.match(/<([^>]+)>/);
-  const bare = (match ? match[1] : value).trim();
+  const input = value.trim();
+  const open = input.indexOf("<");
+  const close = open < 0 ? -1 : input.indexOf(">", open + 1);
+  if (
+    (open >= 0 || input.includes(">")) &&
+    (open < 0 || close < 0 || close !== input.length - 1 || input.indexOf("<", open + 1) >= 0)
+  ) {
+    throw new Error(`Ogiltig adress: ${value}`);
+  }
+  const bare = open >= 0 ? input.slice(open + 1, close).trim() : input;
   if (!/^[^\s<>@,;]+@[^\s<>@,;]+$/.test(bare)) throw new Error(`Ogiltig adress: ${value}`);
   return bare;
 }
@@ -116,7 +124,7 @@ export function smtpBinding(env) {
         }
         await write("DATA");
         await expect(354, "DATA");
-        await write(`${data.replace(/\r\n\./g, "\r\n..")}\r\n.`);
+        await write(`${data.replaceAll("\r\n.", "\r\n..")}\r\n.`);
         await expect(250, "meddelandet");
         await write("QUIT");
         return { messageId };

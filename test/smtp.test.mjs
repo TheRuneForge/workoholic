@@ -21,6 +21,8 @@ function smtpSession({
   startTlsChunks = ["220 Ready to start TLS\r\n"],
   secureReplies,
   direct = false,
+  from = "from@example.com",
+  to = "to@example.com",
 }) {
   const commands = [];
   const plainReplies = ["220 greeting\r\n", "250-localhost\r\n250 STARTTLS\r\n", ...startTlsChunks];
@@ -83,7 +85,7 @@ function smtpSession({
         SMTP_PORT: direct ? "465" : "587",
         SMTP_USER: "user",
         SMTP_PASSWORD: "password",
-      }).send({ from: "from@example.com", to: "to@example.com", subject: "Test", text: "body" }),
+      }).send({ from, to, subject: "Test", text: "body" }),
     commands,
     get upgrades() {
       return upgrades;
@@ -155,4 +157,17 @@ test("still sends through direct TLS", async () => {
   assert.equal(session.upgrades, 0);
   assert.equal(session.closed, 1);
   assert.equal(session.commands.at(-1), "QUIT\r\n");
+});
+
+test("parses display-name addresses and rejects trailing address input", async () => {
+  const session = smtpSession({
+    from: "Sender Name <from@example.com>",
+    to: "Recipient Name <to@example.com>",
+  });
+  await session.send();
+  assert.ok(session.commands.includes("MAIL FROM:<from@example.com>\r\n"));
+  assert.ok(session.commands.includes("RCPT TO:<to@example.com>\r\n"));
+
+  const malformed = smtpSession({ to: "Recipient <to@example.com> trailing" });
+  await assert.rejects(malformed.send(), /Ogiltig adress/);
 });
