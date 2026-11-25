@@ -138,11 +138,16 @@ test("the Deploy workflow passes every declared value and the Cloudflare token",
   const workflow = readFileSync(join(root, ".github/workflows/deploy.yml"), "utf8");
   const deployStep = workflow.slice(workflow.indexOf("- run: sh tools/deploy.sh"));
   assert.notEqual(deployStep, workflow, "deploy step is missing");
-  for (const name of [...declared, "CLOUDFLARE_API_TOKEN"])
+  for (const name of [...declared, "CLOUDFLARE_API_TOKEN"]) {
+    const fallback =
+      name === "D1_DATABASE_NAME" ? " || 'workoholic'" :
+      name === "SITE_FAMILY" ? " || 'Workoholic'" : "";
+    const expected = "          " + name + ": $" + "{{ secrets." + name + fallback + " }}\n";
     assert.ok(
-      deployStep.includes(`          ${name}:`) && deployStep.includes(`secrets.${name}`),
-      `${name} is missing from the deploy step's env`,
+      deployStep.includes(expected),
+      name + " is missing its expected assignment from the deploy step's env",
     );
+  }
   assert.match(workflow, /run: sh tools\/deploy\.sh\n/);
   // Only the deploy step sees the values, not the install and test steps.
   assert.doesNotMatch(workflow, /^    env:/m);
