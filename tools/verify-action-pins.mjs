@@ -10,16 +10,21 @@ let count = 0;
 for (const file of files) {
   const source = readFileSync(file, "utf8");
   for (const [index, line] of source.split("\n").entries()) {
-    const match = line.match(/^\s*(?:-\s*)?uses:\s*([^\s#]+)(?:\s+#\s*(.*))?$/);
-    if (!match) continue;
-    const reference = match[1];
+    let actionLine = line.trimStart();
+    if (actionLine.startsWith("-")) actionLine = actionLine.slice(1).trimStart();
+    if (!actionLine.startsWith("uses:")) continue;
+    const value = actionLine.slice(5).trimStart();
+    const commentAt = value.indexOf(" #");
+    const reference = (commentAt < 0 ? value : value.slice(0, commentAt)).trim();
+    const comment = commentAt < 0 ? "" : value.slice(commentAt + 2).trim();
+    if (!reference) continue;
     if (reference.startsWith("./") || reference.startsWith("docker://")) continue;
     const separator = reference.lastIndexOf("@");
     const revision = separator < 0 ? "" : reference.slice(separator + 1);
     if (!/^[0-9a-f]{40}$/.test(revision)) {
       throw new Error(file + ":" + (index + 1) + ": action must be pinned to a full commit SHA: " + reference);
     }
-    if (!match[2]?.trim()) {
+    if (!comment) {
       throw new Error(file + ":" + (index + 1) + ": add the upstream version as a comment for traceability");
     }
     count += 1;

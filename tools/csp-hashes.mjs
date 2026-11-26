@@ -14,12 +14,7 @@ const assertWithin = (path, allowedRoot) => {
   }
 };
 
-const resolveWithin = (candidate) => {
-  if (typeof candidate !== "string" || !candidate.trim() || candidate.split(/[\\\\/]/).includes("..")) {
-    throw new Error("scan directory must be a relative path without parent-directory segments");
-  }
-  const absolute = resolve(root, candidate);
-  assertWithin(absolute, root);
+const rejectSymlinkComponents = (absolute) => {
   let current = root;
   for (const component of relative(root, absolute).split(sep).filter(Boolean)) {
     current = resolve(current, component);
@@ -32,17 +27,14 @@ const resolveWithin = (candidate) => {
       break;
     }
   }
+};
+
+const findExistingAncestor = (absolute) => {
   let existing = absolute;
   const missing = [];
   while (true) {
     try {
-      const canonicalExisting = realpathSync.native(existing);
-      const canonical = resolve(canonicalExisting, ...missing);
-      assertWithin(canonical, realpathSync.native(root));
-      if (relative(absolute, canonical) !== "") {
-        throw new Error("scan directory must not traverse symbolic links");
-      }
-      return canonical;
+      return { canonicalExisting: realpathSync.native(existing), missing };
     } catch (error) {
       if (error.code !== "ENOENT" && error.code !== "ENOTDIR") throw error;
       const parent = dirname(existing);
@@ -51,6 +43,22 @@ const resolveWithin = (candidate) => {
       existing = parent;
     }
   }
+};
+
+const resolveWithin = (candidate) => {
+  if (typeof candidate !== "string" || !candidate.trim() || isAbsolute(candidate) || candidate.split(/[\\/]/).includes("..")) {
+    throw new Error("scan directory must be a relative path without parent-directory segments");
+  }
+  const absolute = resolve(root, candidate);
+  assertWithin(absolute, root);
+  rejectSymlinkComponents(absolute);
+  const { canonicalExisting, missing } = findExistingAncestor(absolute);
+  const canonical = resolve(canonicalExisting, ...missing);
+  assertWithin(canonical, realpathSync.native(root));
+  if (relative(absolute, canonical) !== "") {
+    throw new Error("scan directory must not traverse symbolic links");
+  }
+  return canonical;
 };
 
 const scanRoot = resolveWithin(scanArg);
@@ -69,4 +77,4 @@ const scan = (dir) => {
   }
 };
 scan(scanRoot);
-console.log([...hashes].sort().join(" "));
+console.log([...hashes].sort((a, b) => a.localeCompare(b)).join(" "));
