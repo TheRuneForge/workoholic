@@ -47,7 +47,7 @@ const findExistingAncestor = (absolute) => {
 
 const resolveWithin = (candidate) => {
   if (typeof candidate !== "string" || !candidate.trim() || isAbsolute(candidate) || candidate.split(/[\\/]/).includes("..")) {
-    throw new Error("scan directory must be a relative path without parent-directory segments");
+    throw new Error("scan directory must be within the current working directory and must not contain parent-directory segments");
   }
   const absolute = resolve(root, candidate);
   assertWithin(absolute, root);
