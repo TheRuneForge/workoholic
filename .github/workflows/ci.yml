@@ -85,3 +85,9 @@ jobs:
 
       - name: Check addresses
         run: node tools/check-addresses.mjs
+
+  runner-diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify hosted runner startup
+        run: echo "GitHub-hosted runner started successfully"
