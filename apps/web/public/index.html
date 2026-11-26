@@ -27,6 +27,7 @@
             <option value="blackout">Blackout</option>
           </select></label
         >
+        <!-- nosemgrep: python.django.security.django-no-csrf-token.django-no-csrf-token -- The POST route enforces same-origin Origin/Referer validation before logout. -->
         <form action="/auth/logout" method="post">
           <button class="secondary" type="submit">Logga ut</button>
         </form>

@@ -18,20 +18,25 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 const script = fileURLToPath(new URL("../tools/docs-site.mjs", import.meta.url));
+const cspScript = fileURLToPath(new URL("../tools/csp-hashes.mjs", import.meta.url));
 
 const fixture = () => {
   const root = mkdtempSync(join(tmpdir(), "docs-site-"));
   copyFileSync(script, join(root, "docs-site.mjs"));
+  copyFileSync(cspScript, join(root, "csp-hashes.mjs"));
   writeFileSync(join(root, "README.md"), "# Fixture\n");
   writeFileSync(join(root, "zensical.toml"), 'repo_url = "https://example.test/repo"\n');
   return root;
 };
 
-const run = (root, ...args) =>
-  spawnSync(process.execPath, [join(root, "docs-site.mjs"), ...args], {
-    cwd: root,
-    encoding: "utf8",
-  });
+const run = (root, ...args) => {
+  const isCsp = args[0] === "--csp-hashes";
+  return spawnSync(
+    process.execPath,
+    [join(root, isCsp ? "csp-hashes.mjs" : "docs-site.mjs"), ...(isCsp ? args.slice(1) : args)],
+    { cwd: root, encoding: "utf8" },
+  );
+};
 
 test("generates the wiki in a valid nested output directory", (t) => {
   const root = fixture();

@@ -29,11 +29,11 @@ jobs:
       contents: read
     steps:
       - name: Check out source
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@v7.1.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.15"
       - name: Remove stale Semgrep report
@@ -50,7 +50,7 @@ jobs:
       - name: Preserve Semgrep SARIF
         id: semgrep_artifact
         if: ${{ !cancelled() && steps.semgrep_scan.outcome == 'success' && hashFiles('semgrep.sarif') != '' }}
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sarif-semgrep
           path: semgrep.sarif
@@ -78,7 +78,7 @@ jobs:
       contents: read
     steps:
       - name: Check out source
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Remove stale Trivy report
@@ -87,14 +87,14 @@ jobs:
         id: trivy_scan
         env:
           TRIVY_INCLUDE_DEV_DEPS: "true"
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
           format: sarif
           output: trivy.sarif
           version: v0.76.2
-          scanners: vuln,misconfig,secret,license
+          scanners: vuln,misconfig,secret
           severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
           exit-code: "0"
           cache: false
@@ -105,10 +105,42 @@ jobs:
       - name: Preserve Trivy SARIF
         id: trivy_artifact
         if: ${{ !cancelled() && steps.trivy_scan.outcome == 'success' && hashFiles('trivy.sarif') != '' }}
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sarif-trivy
           path: trivy.sarif
+          if-no-files-found: error
+          retention-days: 1
+      - name: Run Trivy license scan for production dependencies
+        id: trivy_license_scan
+        env:
+          TRIVY_INCLUDE_DEV_DEPS: "false"
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-license.sarif
+          version: v0.76.2
+          scanners: license
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          exit-code: "0"
+          cache: false
+      - name: Remove informational license notices
+        if: ${{ !cancelled() && steps.trivy_license_scan.outcome == 'success' }}
+        run: |
+          jq '(.runs[].results) |= map(select(.level != "note"))' trivy-license.sarif > trivy-license.filtered.sarif
+          mv trivy-license.filtered.sarif trivy-license.sarif
+      - name: Validate production license SARIF
+        if: ${{ !cancelled() && steps.trivy_license_scan.outcome == 'success' }}
+        run: test -s trivy-license.sarif
+      - name: Preserve production license SARIF
+        id: trivy_license_artifact
+        if: ${{ !cancelled() && steps.trivy_license_scan.outcome == 'success' && hashFiles('trivy-license.sarif') != '' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sarif-trivy-license
+          path: trivy-license.sarif
           if-no-files-found: error
           retention-days: 1
       - name: Summarize trivy-filesystem findings when SARIF upload is unavailable
@@ -159,13 +191,13 @@ jobs:
     steps:
       - name: Check out scanned revision for SARIF fingerprints
         id: checkout_source
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Download scanner reports
         if: ${{ !cancelled() }}
-        uses: actions/download-artifact@v8.0.2
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: sarif-*
           path: ${{ runner.temp }}/sarif-artifacts
@@ -177,10 +209,11 @@ jobs:
           set -eu
           if [ "${{ needs.semgrep.result }}" = "success" ]; then test -s "$RUNNER_TEMP/sarif-artifacts/semgrep.sarif"; fi
           if [ "${{ needs.trivy.result }}" = "success" ]; then test -s "$RUNNER_TEMP/sarif-artifacts/trivy.sarif"; fi
+          if [ "${{ needs.trivy.result }}" = "success" ]; then test -s "$RUNNER_TEMP/sarif-artifacts/trivy-license.sarif"; fi
       - name: Upload Semgrep results
         id: upload_semgrep
         if: ${{ !cancelled() && steps.checkout_source.outcome == 'success' && needs.semgrep.result == 'success' }}
-        uses: github/codeql-action/upload-sarif@v4.39.4
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           sarif_file: ${{ runner.temp }}/sarif-artifacts/semgrep.sarif
           checkout_path: ${{ github.workspace }}
@@ -206,11 +239,19 @@ jobs:
       - name: Upload Trivy results
         id: upload_trivy
         if: ${{ !cancelled() && steps.checkout_source.outcome == 'success' && needs.trivy.result == 'success' }}
-        uses: github/codeql-action/upload-sarif@v4.39.4
+        uses: github/codeql-action/upload-sarif@1bd86f2fdb4b86187fa4059f16f31a3202acc9ea # v4.39.4
         with:
           sarif_file: ${{ runner.temp }}/sarif-artifacts/trivy.sarif
           checkout_path: ${{ github.workspace }}
           category: trivy-filesystem
+      - name: Upload production license results
+        id: upload_trivy_license
+        if: ${{ !cancelled() && steps.checkout_source.outcome == 'success' && needs.trivy.result == 'success' }}
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          sarif_file: ${{ runner.temp }}/sarif-artifacts/trivy-license.sarif
+          checkout_path: ${{ github.workspace }}
+          category: trivy-license
       - name: Summarize Trivy findings if SARIF publication fails
         if: ${{ !cancelled() && (steps.upload_trivy.outcome == 'failure' || steps.checkout_source.outcome == 'failure') }}
         env:

@@ -3,7 +3,6 @@
 //
 //   node tools/docs-site.mjs && zensical build    # the site, in site-docs/
 //   node tools/docs-site.mjs --wiki <dir>         # the GitHub wiki, in <dir>
-//   node tools/docs-site.mjs --csp-hashes <dir>   # CSP hashes of the built site
 //
 // README.md becomes the start page and docker/README.md the Docker page; docs/
 // is included as it is, except docs/agents/, which is written for coding agents.
@@ -30,7 +29,6 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { createHash } from "node:crypto";
 import { basename, dirname, isAbsolute, posix, relative, resolve, sep } from "node:path";
 
 const isWithin = (path, root) => {
@@ -100,35 +98,6 @@ const resolveWithin = (root, candidate, label, allowRoot = false) => {
   }
   return canonical;
 };
-
-// --csp-hashes: print the CSP sources ('sha256-...') that allow the inline
-// scripts in the built HTML under <dir>, for a Content-Security-Policy that
-// does not allow inline scripts in general.
-if (process.argv[2] === "--csp-hashes") {
-  const root = realpathSync.native(process.cwd());
-  const scanArg = process.argv[3];
-  if (!scanArg?.trim()) {
-    throw new Error("scan directory is required");
-  }
-  const scanRoot = resolveWithin(root, scanArg, "scan directory", true);
-  const hashes = new Set();
-  const scan = (dir) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = posix.join(dir, entry.name);
-      if (entry.isDirectory()) scan(path);
-      else if (entry.isFile() && path.endsWith(".html")) {
-        for (const [, code] of readFileSync(path, "utf8").matchAll(
-          /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g,
-        )) {
-          if (code) hashes.add(`'sha256-${createHash("sha256").update(code).digest("base64")}'`);
-        }
-      }
-    }
-  };
-  scan(scanRoot);
-  console.log([...hashes].sort().join(" "));
-  process.exit(0);
-}
 
 const wiki = process.argv[2] === "--wiki";
 const outArg = wiki ? process.argv[3] : "site-docs";
