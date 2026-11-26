@@ -32,6 +32,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Verify workflow lockfile
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh extension install github/gh-actions-lock --pin v0.4.1
+          gh actions-lock --verify-local
+
       - name: Verify immutable workflow action pins
         run: node tools/verify-action-pins.mjs
 
@@ -85,4 +92,3 @@ jobs:
 
       - name: Check addresses
         run: node tools/check-addresses.mjs
-
