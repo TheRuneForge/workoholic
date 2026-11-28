@@ -1,0 +1,84 @@
+name: Label
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+
+permissions: {}
+
+# This runs on pull_request, not pull_request_target, which GitHub blocks by
+# default in public repositories. Pull requests from forks and from Dependabot
+# get a read-only token, so they are skipped instead of failing.
+
+concurrency:
+  group: label-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  paths:
+    name: Label by changed paths
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/labeler@v7.0.0
+        with:
+          sync-labels: true
+
+  # Runs after the path job so that its label sync cannot remove labels set here.
+  title:
+    name: Label by title prefix
+    needs: paths
+    if: ${{ !cancelled() && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@v9.0.0
+        with:
+          script: |
+            const byType = {
+              feat: "enhancement",
+              fix: "bug",
+              docs: "documentation",
+              security: "security",
+              deps: "dependencies",
+            };
+            // Labels that only the title decides; they are removed again when
+            // the title no longer asks for them. Other labels are never removed.
+            const titleOnly = ["enhancement", "bug", "breaking"];
+
+            function labelsFor(title) {
+              const match = /^([a-z]+)(?:\(([^)]*)\))?(!)?:/.exec(title || "");
+              if (!match) return [];
+              const [, type, scope, breaking] = match;
+              const labels = new Set();
+              if (byType[type]) labels.add(byType[type]);
+              if (scope === "deps") labels.add("dependencies");
+              if (breaking) labels.add("breaking");
+              return [...labels];
+            }
+
+            const { owner, repo } = context.repo;
+            const pull = context.payload.pull_request;
+            const wanted = labelsFor(pull.title);
+            const changedTitle = context.payload.action === "edited" && context.payload.changes && context.payload.changes.title;
+            const previous = changedTitle ? labelsFor(context.payload.changes.title.from) : [];
+
+            for (const name of previous) {
+              if (!titleOnly.includes(name) || wanted.includes(name)) continue;
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: pull.number, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+            if (wanted.length > 0) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: pull.number, labels: wanted });
+            }

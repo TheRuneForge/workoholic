@@ -1,0 +1,353 @@
+name: Security alert issues
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: security-alert-issues
+  cancel-in-progress: false
+
+jobs:
+  sync-alerts:
+    name: Create issues from open security alerts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Create alert reader token
+        id: app-token
+        uses: actions/create-github-app-token@v3.4.0
+        with:
+          client-id: ${{ vars.ALERTS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ALERTS_APP_PRIVATE_KEY }}
+          permission-vulnerability-alerts: read
+          permission-security-events: read
+          permission-secret-scanning-alerts: read
+      - name: Create or reopen alert issues
+        env:
+          ALERTS_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 <<'PY'
+          import http.client
+          import json
+          import os
+          import re
+          import sys
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          API = "https://api.github.com"
+          ALERTS_TOKEN = os.environ["ALERTS_TOKEN"]
+          GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
+          REPOSITORY = os.environ["GH_REPOSITORY"]
+
+          if not ALERTS_TOKEN:
+              sys.exit("Missing GitHub App token: set ALERTS_APP_CLIENT_ID and ALERTS_APP_PRIVATE_KEY")
+
+          def request_with_headers(method, path, payload=None, token=None):
+              url = path if path.startswith(API + "/") else API + path
+              data = None if payload is None else json.dumps(payload).encode()
+              req = urllib.request.Request(
+                  url,
+                  data=data,
+                  method=method,
+                  headers={
+                      "Accept": "application/vnd.github+json",
+                      "Authorization": f"Bearer {token or GITHUB_TOKEN}",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "Content-Type": "application/json",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      raw = response.read()
+                      return (json.loads(raw) if raw else None), response.headers
+              except urllib.error.HTTPError as error:
+                  detail = error.read().decode("utf-8", "replace")
+                  raise RuntimeError(f"GitHub API {method} {url}: HTTP {error.code}: {detail}") from error
+              except urllib.error.URLError as error:
+                  raise RuntimeError(f"GitHub API {method} {url}: connection failed: {error}") from error
+              except (http.client.HTTPException, OSError) as error:
+                  raise RuntimeError(f"GitHub API {method} {url}: read failed: {error}") from error
+
+          def request(method, path, payload=None, token=None):
+              data, _ = request_with_headers(method, path, payload, token)
+              return data
+
+          def get_all_cursor(path, token=None):
+              results = []
+              separator = "&" if "?" in path else "?"
+              url = f"{API}{path}{separator}per_page=100"
+              while url:
+                  batch, headers = request_with_headers("GET", url, token=token)
+                  if not isinstance(batch, list):
+                      raise RuntimeError(f"Expected a list from {url}")
+                  results.extend(batch)
+
+                  link_header = headers.get("Link", "")
+                  next_match = re.search(r'<([^>]+)>;\s*rel="next"', link_header)
+                  next_url = next_match.group(1) if next_match else None
+                  if next_url:
+                      parsed = urllib.parse.urlparse(next_url)
+                      if parsed.scheme != "https" or parsed.netloc != "api.github.com":
+                          raise RuntimeError("GitHub returned an unexpected pagination URL")
+                  url = next_url
+              return results
+
+          def get_all(path, token=None):
+              results = []
+              page = 1
+              while True:
+                  separator = "&" if "?" in path else "?"
+                  batch = request("GET", f"{path}{separator}per_page=100&page={page}", token=token)
+                  if not isinstance(batch, list):
+                      raise RuntimeError(f"Expected a list from {path}")
+                  results.extend(batch)
+                  if len(batch) < 100:
+                      return results
+                  page += 1
+
+          def severity_label(value, fallback="unknown"):
+              value = (value or "").lower()
+              return value if value in {"critical", "high", "medium", "low"} else fallback
+
+          def code_scanning_severity(alert):
+              rule = alert.get("rule") or {}
+              level = (rule.get("security_severity_level") or "").lower()
+              if level in {"critical", "high", "medium", "low"}:
+                  return level
+              return {
+                  "error": "high",
+                  "warning": "medium",
+                  "note": "low",
+              }.get((rule.get("severity") or "").lower(), "unknown")
+
+          def make_alert(kind, alert):
+              number = alert["number"]
+              if kind == "dependabot":
+                  dependency = alert.get("dependency") or {}
+                  package = dependency.get("package") or {}
+                  vulnerability = alert.get("security_vulnerability") or {}
+                  advisory = alert.get("security_advisory") or {}
+                  severity = severity_label(vulnerability.get("severity") or advisory.get("severity"))
+                  name = package.get("name") or "Unknown dependency"
+                  ecosystem = package.get("ecosystem") or "unknown ecosystem"
+                  title = f"[{severity.upper()}] Dependency vulnerability: {name}"
+                  details = [
+                      f"- **Package:** {name} ({ecosystem})",
+                      f"- **Manifest:** {dependency.get('manifest_path') or 'Not provided'}",
+                      f"- **Affected versions:** {vulnerability.get('vulnerable_version_range') or 'Not provided'}",
+                      f"- **GHSA:** {advisory.get('ghsa_id') or 'Not provided'}",
+                  ]
+                  label_type = "type:dependency-vulnerability"
+                  url = alert.get("html_url") or ""
+                  summary = advisory.get("summary") or "Dependabot reported a vulnerable dependency."
+              elif kind == "code-scanning":
+                  rule = alert.get("rule") or {}
+                  instance = alert.get("most_recent_instance") or {}
+                  location = instance.get("location") or {}
+                  severity = code_scanning_severity(alert)
+                  rule_name = rule.get("description") or rule.get("name") or "Code scanning finding"
+                  title = f"[{severity.upper()}] Code scanning: {rule_name}"
+                  line = location.get("start_line")
+                  path = location.get("path") or "Not provided"
+                  details = [
+                      f"- **Rule:** {rule.get('id') or 'Not provided'}",
+                      f"- **Tool:** {(alert.get('tool') or {}).get('name') or 'Not provided'}",
+                      f"- **Location:** {path}" + (f":{line}" if line else ""),
+                      f"- **Security severity:** {(rule.get('security_severity_level') or 'Not provided')}",
+                  ]
+                  label_type = "type:code-scanning"
+                  url = alert.get("html_url") or ""
+                  summary = rule.get("description") or "Code scanning reported a finding."
+              else:
+                  secret_type = alert.get("secret_type_display_name") or alert.get("secret_type") or "secret"
+                  validity = (alert.get("validity") or "unknown").lower()
+                  severity = "critical" if validity == "active" else ("low" if validity == "inactive" else "high")
+                  title = f"[{severity.upper()}] Exposed secret: {secret_type}"
+                  details = [
+                      f"- **Secret type:** {secret_type}",
+                      f"- **Validity:** {validity}",
+                      f"- **Publicly leaked:** {alert.get('publicly_leaked', False)}",
+                      "- **Secret value:** deliberately omitted",
+                  ]
+                  label_type = "type:secret-exposure"
+                  url = alert.get("html_url") or ""
+                  summary = "Secret scanning detected a potential exposed secret. The secret value is intentionally not copied into this issue."
+
+              key = f"{kind}:{number}"
+              labels = ["security-alert", label_type, f"severity:{severity}"]
+              body = "\n".join([
+                  "<!-- security-alert-key: " + key + " -->",
+                  "## Security alert",
+                  "",
+                  summary,
+                  "",
+                  *details,
+                  "",
+                  f"- **Alert source:** {kind}",
+                  f"- **Alert number:** #{number}",
+                  f"- **Severity:** {severity}",
+                  f"- **GitHub alert:** {url or 'Link unavailable'}",
+                  "",
+                  "_This issue was created automatically from an open GitHub security alert._",
+              ])
+              if len(title) > 250:
+                  title = title[:247] + "..."
+              return {"key": key, "title": title, "body": body, "labels": labels}
+
+          label_definitions = {
+              "security-alert": ("B60205", "Automatically created issue representing an open GitHub security alert."),
+              "type:dependency-vulnerability": ("D93F0B", "A vulnerable dependency reported by Dependabot."),
+              "type:code-scanning": ("5319E7", "A code security finding reported by code scanning, including CodeQL."),
+              "type:secret-exposure": ("B60205", "A potential exposed credential or secret reported by secret scanning."),
+              "severity:critical": ("B60205", "Critical severity security alert; address immediately."),
+              "severity:high": ("D93F0B", "High severity security alert; prioritize remediation."),
+              "severity:medium": ("FBCA04", "Medium severity security alert; remediate in normal priority order."),
+              "severity:low": ("0E8A16", "Low severity security alert; address when practical."),
+              "severity:unknown": ("C5DEF5", "The source did not provide a recognized severity level."),
+          }
+
+          # Labels are created in this repository if they do not already exist.
+          for name, (color, description) in label_definitions.items():
+              try:
+                  request("POST", f"/repos/{REPOSITORY}/labels", {
+                      "name": name, "color": color, "description": description
+                  })
+              except RuntimeError as error:
+                  if "HTTP 422" not in str(error):
+                      raise
+
+          alerts = []
+          source_errors = []
+          # GitHub only returns generic secret patterns when they are requested
+          # explicitly, so they are collected with a second secret scanning query.
+          generic_secret_types = ",".join([
+              "http_basic_authentication_header",
+              "http_bearer_authentication_header",
+              "mongodb_connection_string",
+              "mysql_connection_string",
+              "openssh_private_key",
+              "pgp_private_key",
+              "postgres_connection_string",
+              "rsa_private_key",
+              "password",
+          ])
+          secret_endpoint = f"/repos/{REPOSITORY}/secret-scanning/alerts?state=open&hide_secret=true"
+          endpoints = [
+              ("dependabot", f"/repos/{REPOSITORY}/dependabot/alerts?state=open", get_all_cursor, False),
+              ("code-scanning", f"/repos/{REPOSITORY}/code-scanning/alerts?state=open", get_all, False),
+              ("secret-scanning", secret_endpoint, get_all, False),
+              ("secret-scanning", f"{secret_endpoint}&secret_type={generic_secret_types}", get_all, True),
+          ]
+          seen_keys = set()
+          for kind, endpoint, collector, optional in endpoints:
+              try:
+                  source_alerts = collector(endpoint, token=ALERTS_TOKEN)
+              except RuntimeError as error:
+                  # Secret scanning alerts are not available through this API on
+                  # every repository (for example public ones answer 404).
+                  if kind == "secret-scanning" and "HTTP 404" in str(error):
+                      print(f"Skipping {kind} alerts: the API reports them as unavailable for this repository.")
+                      continue
+                  if optional:
+                      print(f"WARNING: Could not collect generic {kind} alerts: {error}", file=sys.stderr)
+                      continue
+                  source_errors.append((kind, str(error)))
+                  print(f"ERROR: Could not collect {kind} alerts: {error}", file=sys.stderr)
+                  continue
+              new_alerts = [make_alert(kind, alert) for alert in source_alerts]
+              new_alerts = [alert for alert in new_alerts if alert["key"] not in seen_keys]
+              seen_keys.update(alert["key"] for alert in new_alerts)
+              alerts.extend(new_alerts)
+              print(f"Collected {len(new_alerts)} open {kind} alerts.")
+
+          existing = {}
+          trusted_bot = "github-actions[bot]"
+          for issue in get_all(f"/repos/{REPOSITORY}/issues?state=all"):
+              if "pull_request" in issue:
+                  continue
+              if (issue.get("user") or {}).get("login") != trusted_bot:
+                  continue
+              labels = {
+                  label.get("name")
+                  for label in issue.get("labels", [])
+                  if isinstance(label, dict)
+              }
+              if "security-alert" not in labels:
+                  continue
+              body = issue.get("body") or ""
+              marker = "<!-- security-alert-key: "
+              start = body.find(marker)
+              if start != -1:
+                  end = body.find(" -->", start)
+                  if end != -1:
+                      key = body[start + len(marker):end]
+                      if re.fullmatch(r"(?:dependabot|code-scanning|secret-scanning):[1-9][0-9]*", key):
+                          existing[key] = issue
+
+          def code_owners():
+              try:
+                  data = request("GET", f"/repos/{REPOSITORY}/contents/.github/CODEOWNERS")
+              except RuntimeError:
+                  return []
+              import base64
+              text = base64.b64decode(data["content"]).decode("utf-8", "replace")
+              owners = []
+              for line in text.splitlines():
+                  line = line.strip()
+                  if not line or line.startswith("#"):
+                      continue
+                  for token in line.split()[1:]:
+                      if re.fullmatch(r"@[A-Za-z0-9-]+", token) and token[1:] not in owners:
+                          owners.append(token[1:])
+              return owners
+
+          ASSIGNEES = code_owners()
+
+          created = reopened = unchanged = 0
+          failed_alerts = []
+          for alert in alerts:
+              current = existing.get(alert["key"])
+              try:
+                  if current:
+                      if current.get("state") == "closed":
+                          request("PATCH", f"/repos/{REPOSITORY}/issues/{current['number']}", {"state": "open"})
+                          reopened += 1
+                          print(f"Reopened issue #{current['number']} for {alert['key']}")
+                      else:
+                          unchanged += 1
+                      continue
+
+                  issue = request("POST", f"/repos/{REPOSITORY}/issues", {
+                      "title": alert["title"],
+                      "body": alert["body"],
+                      "labels": alert["labels"],
+                      "assignees": ASSIGNEES,
+                  })
+              except RuntimeError as error:
+                  failed_alerts.append(alert["key"])
+                  print(f"ERROR: Could not sync {alert['key']}: {error}", file=sys.stderr)
+                  continue
+              created += 1
+              existing[alert["key"]] = issue
+              print(f"Created issue #{issue['number']} for {alert['key']}")
+
+          print(
+              f"Security alert sync complete: {len(alerts)} collected open alerts, "
+              f"{created} issues created, {reopened} reopened, {unchanged} already tracked."
+          )
+          if failed_alerts:
+              sys.exit(f"Could not create or reopen issues for: {', '.join(failed_alerts)}")
+          if source_errors:
+              failed_sources = ", ".join(sorted({kind for kind, _ in source_errors}))
+              sys.exit(f"Security alert collection incomplete; failed sources: {failed_sources}")
+          PY
