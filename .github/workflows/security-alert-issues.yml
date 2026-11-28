@@ -18,9 +18,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Create alert reader token
+        id: app-token
+        uses: actions/create-github-app-token@v3.4.0
+        with:
+          client-id: ${{ vars.ALERTS_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ALERTS_APP_PRIVATE_KEY }}
+          permission-vulnerability-alerts: read
+          permission-security-events: read
+          permission-secret-scanning-alerts: read
       - name: Create or reopen alert issues
         env:
-          ALERTS_TOKEN: ${{ secrets.SECURITY_ALERTS_TOKEN }}
+          ALERTS_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_TOKEN: ${{ github.token }}
           GH_REPOSITORY: ${{ github.repository }}
         run: |
@@ -40,7 +49,7 @@ jobs:
           REPOSITORY = os.environ["GH_REPOSITORY"]
 
           if not ALERTS_TOKEN:
-              sys.exit("Missing required secret: SECURITY_ALERTS_TOKEN")
+              sys.exit("Missing GitHub App token: set ALERTS_APP_CLIENT_ID and ALERTS_APP_PRIVATE_KEY")
 
           def request_with_headers(method, path, payload=None, token=None):
               url = path if path.startswith(API + "/") else API + path
