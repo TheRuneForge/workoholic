@@ -72,3 +72,9 @@ test("the baseline is documented for agents and linked from AGENTS.md", () => {
   assert.match(doc, /ubuntu-latest/);
   assert.match(readFileSync(join(root, "AGENTS.md"), "utf8"), /docs\/agents\/ubuntu-baseline\.md/);
 });
+
+test("Renovate keeps workflow actions referenced by tag, as actions.lock requires", () => {
+  const rules = JSON.parse(readFileSync(join(root, "renovate.json"), "utf8")).packageRules;
+  const rule = rules.find((candidate) => candidate.matchManagers?.includes("github-actions"));
+  assert.ok(rule && rule.pinDigests === false, "Renovate would otherwise replace tags with commit SHAs");
+});

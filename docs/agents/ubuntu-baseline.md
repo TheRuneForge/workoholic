@@ -66,7 +66,7 @@ Add a tool to this list only when it is genuinely missing from the Ubuntu archiv
 
 - **The runner image has its own Node, Python and Rust earlier on `PATH`.** The script appends `/usr/bin` to `GITHUB_PATH` so the packages it installs win. Keep that, and check the version in a step if you depend on it.
 - **`apt-get` needs `sudo` on the runner and not in a container.** The script uses `sudo` only when it is not root.
-- **Actions pinned by commit SHA fail at startup** where the organization requires `actions.lock`. Reference actions by tag and let the lockfile pin them. This is unrelated to the toolchains but caught the same migration.
+- **Actions pinned by commit SHA fail at startup** where the organization requires `actions.lock`. Reference actions by tag and let the lockfile pin them. Renovate is configured not to pin digests for that reason (`config:best-practices` would otherwise replace tags with SHAs). This is unrelated to the toolchains but caught the same migration.
 
 ## When the runner moves to the next LTS
 

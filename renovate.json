@@ -34,6 +34,13 @@
         "cargo"
       ],
       "enabled": false
+    },
+    {
+      "description": "Workflow actions are referenced by tag and pinned by actions.lock; a commit SHA in a workflow fails at startup where the lockfile is required, so Renovate must not pin digests",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "pinDigests": false
     }
   ],
   "osvVulnerabilityAlerts": true,
