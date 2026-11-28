@@ -1,0 +1,51 @@
+name: Assign
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+  issues:
+    types: [opened, reopened]
+
+permissions: {}
+
+jobs:
+  assign:
+    name: Assign owners
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const subject = context.payload.pull_request || context.payload.issue;
+            if ((subject.assignees || []).length > 0) return;
+
+            const file = await github.rest.repos.getContent({
+              owner,
+              repo,
+              path: ".github/CODEOWNERS",
+              ref: context.payload.repository.default_branch,
+            });
+            const text = Buffer.from(file.data.content, "base64").toString("utf8");
+            const owners = new Set();
+            for (const line of text.split("\n")) {
+              const trimmed = line.trim();
+              if (!trimmed || trimmed.startsWith("#")) continue;
+              for (const token of trimmed.split(/\s+/).slice(1)) {
+                if (/^@[A-Za-z0-9-]+$/.test(token)) owners.add(token.slice(1));
+              }
+            }
+            if (subject.user && subject.user.type === "User") owners.add(subject.user.login);
+            if (owners.size === 0) return;
+
+            await github.rest.issues.addAssignees({
+              owner,
+              repo,
+              issue_number: subject.number,
+              assignees: [...owners],
+            });
