@@ -1,5 +1,10 @@
 # AGENTS.md
 
+## Toolchains
+
+- Toolchains come from the Ubuntu APT repositories of `ubuntu-latest`, as unversioned packages, so the repository follows the Ubuntu LTS. Do not pin versions, name versioned packages or use `setup-*` actions for them.
+- Read `docs/agents/ubuntu-baseline.md` before changing a runner label, a toolchain install, the Dockerfile base image or the Renovate rules.
+
 ## Evidence-based review, CI, and conflict investigation
 
 GitHub status labels and summary states are metadata, not proof of the underlying reality. Never treat `outdated`, `resolved`, `dismissed`, `closed`, or similar labels as evidence that a finding is obsolete, fixed, understood, or invalid.
