@@ -55,9 +55,7 @@ jobs:
         run: '"$RUNNER_TEMP/actionlint" -color .github/workflows/*.yml'
 
       - name: Install Node.js, npm and pipx from Ubuntu APT
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends nodejs npm pipx python3-pip
+        run: sh .github/scripts/ubuntu-toolchain.sh nodejs npm pipx python3-pip
 
       - name: Install project dependencies
         run: npm ci --ignore-scripts --legacy-peer-deps

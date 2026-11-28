@@ -32,10 +32,6 @@ jobs:
         uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Python
-        uses: actions/setup-python@v7.1.0
-        with:
-          python-version: "3.15"
       - name: Remove stale Semgrep report
         run: rm -f semgrep.sarif
       - name: Run Semgrep

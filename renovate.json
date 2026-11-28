@@ -6,16 +6,40 @@
   ],
   "timezone": "Europe/Stockholm",
   "platformCommit": "enabled",
-  "labels": ["dependencies"],
+  "labels": [
+    "dependencies"
+  ],
   "packageRules": [
     {
       "description": "Automerge non-major updates once all required checks pass",
-      "matchUpdateTypes": ["minor", "patch", "pin", "pinDigest", "digest", "lockFileMaintenance"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "pinDigest",
+        "digest",
+        "lockFileMaintenance"
+      ],
       "automerge": true
+    },
+    {
+      "description": "Language runtimes and system tools come from the Ubuntu APT repositories of ubuntu-latest and follow the Ubuntu LTS, so their maintenance and security updates arrive through APT, not through Renovate",
+      "matchPackageNames": [
+        "node",
+        "nodejs",
+        "python",
+        "python3",
+        "rust",
+        "rustc",
+        "cargo"
+      ],
+      "enabled": false
     }
   ],
   "osvVulnerabilityAlerts": true,
   "vulnerabilityAlerts": {
-    "addLabels": ["security"]
+    "addLabels": [
+      "security"
+    ]
   }
 }
