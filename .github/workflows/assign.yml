@@ -1,16 +1,21 @@
 name: Assign
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, reopened, ready_for_review]
   issues:
     types: [opened, reopened]
 
 permissions: {}
 
+# This runs on pull_request, not pull_request_target, which GitHub blocks by
+# default in public repositories. Pull requests from forks and from Dependabot
+# get a read-only token, so they are skipped instead of failing.
+
 jobs:
   assign:
     name: Assign owners
+    if: ${{ github.event_name == 'issues' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -18,7 +23,7 @@ jobs:
       issues: write
       pull-requests: write
     steps:
-      - uses: actions/github-script@v9.0.0
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const { owner, repo } = context.repo;
