@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  contents: read
   issues: write
 
 concurrency:
@@ -199,6 +200,8 @@ jobs:
                   "",
                   "_This issue was created automatically from an open GitHub security alert._",
               ])
+              if len(title) > 250:
+                  title = title[:247] + "..."
               return {"key": key, "title": title, "body": body, "labels": labels}
 
           label_definitions = {
@@ -225,20 +228,47 @@ jobs:
 
           alerts = []
           source_errors = []
+          # GitHub only returns generic secret patterns when they are requested
+          # explicitly, so they are collected with a second secret scanning query.
+          generic_secret_types = ",".join([
+              "http_basic_authentication_header",
+              "http_bearer_authentication_header",
+              "mongodb_connection_string",
+              "mysql_connection_string",
+              "openssh_private_key",
+              "pgp_private_key",
+              "postgres_connection_string",
+              "rsa_private_key",
+              "password",
+          ])
+          secret_endpoint = f"/repos/{REPOSITORY}/secret-scanning/alerts?state=open&hide_secret=true"
           endpoints = [
-              ("dependabot", f"/repos/{REPOSITORY}/dependabot/alerts?state=open", get_all_cursor),
-              ("code-scanning", f"/repos/{REPOSITORY}/code-scanning/alerts?state=open", get_all),
-              ("secret-scanning", f"/repos/{REPOSITORY}/secret-scanning/alerts?state=open&hide_secret=true", get_all),
+              ("dependabot", f"/repos/{REPOSITORY}/dependabot/alerts?state=open", get_all_cursor, False),
+              ("code-scanning", f"/repos/{REPOSITORY}/code-scanning/alerts?state=open", get_all, False),
+              ("secret-scanning", secret_endpoint, get_all, False),
+              ("secret-scanning", f"{secret_endpoint}&secret_type={generic_secret_types}", get_all, True),
           ]
-          for kind, endpoint, collector in endpoints:
+          seen_keys = set()
+          for kind, endpoint, collector, optional in endpoints:
               try:
                   source_alerts = collector(endpoint, token=ALERTS_TOKEN)
               except RuntimeError as error:
+                  # Secret scanning alerts are not available through this API on
+                  # every repository (for example public ones answer 404).
+                  if kind == "secret-scanning" and "HTTP 404" in str(error):
+                      print(f"Skipping {kind} alerts: the API reports them as unavailable for this repository.")
+                      continue
+                  if optional:
+                      print(f"WARNING: Could not collect generic {kind} alerts: {error}", file=sys.stderr)
+                      continue
                   source_errors.append((kind, str(error)))
                   print(f"ERROR: Could not collect {kind} alerts: {error}", file=sys.stderr)
                   continue
-              alerts.extend(make_alert(kind, alert) for alert in source_alerts)
-              print(f"Collected {len(source_alerts)} open {kind} alerts.")
+              new_alerts = [make_alert(kind, alert) for alert in source_alerts]
+              new_alerts = [alert for alert in new_alerts if alert["key"] not in seen_keys]
+              seen_keys.update(alert["key"] for alert in new_alerts)
+              alerts.extend(new_alerts)
+              print(f"Collected {len(new_alerts)} open {kind} alerts.")
 
           existing = {}
           trusted_bot = "github-actions[bot]"
@@ -284,23 +314,29 @@ jobs:
           ASSIGNEES = code_owners()
 
           created = reopened = unchanged = 0
+          failed_alerts = []
           for alert in alerts:
               current = existing.get(alert["key"])
-              if current:
-                  if current.get("state") == "closed":
-                      request("PATCH", f"/repos/{REPOSITORY}/issues/{current['number']}", {"state": "open"})
-                      reopened += 1
-                      print(f"Reopened issue #{current['number']} for {alert['key']}")
-                  else:
-                      unchanged += 1
-                  continue
+              try:
+                  if current:
+                      if current.get("state") == "closed":
+                          request("PATCH", f"/repos/{REPOSITORY}/issues/{current['number']}", {"state": "open"})
+                          reopened += 1
+                          print(f"Reopened issue #{current['number']} for {alert['key']}")
+                      else:
+                          unchanged += 1
+                      continue
 
-              issue = request("POST", f"/repos/{REPOSITORY}/issues", {
-                  "title": alert["title"],
-                  "body": alert["body"],
-                  "labels": alert["labels"],
-                  "assignees": ASSIGNEES,
-              })
+                  issue = request("POST", f"/repos/{REPOSITORY}/issues", {
+                      "title": alert["title"],
+                      "body": alert["body"],
+                      "labels": alert["labels"],
+                      "assignees": ASSIGNEES,
+                  })
+              except RuntimeError as error:
+                  failed_alerts.append(alert["key"])
+                  print(f"ERROR: Could not sync {alert['key']}: {error}", file=sys.stderr)
+                  continue
               created += 1
               existing[alert["key"]] = issue
               print(f"Created issue #{issue['number']} for {alert['key']}")
@@ -309,7 +345,9 @@ jobs:
               f"Security alert sync complete: {len(alerts)} collected open alerts, "
               f"{created} issues created, {reopened} reopened, {unchanged} already tracked."
           )
+          if failed_alerts:
+              sys.exit(f"Could not create or reopen issues for: {', '.join(failed_alerts)}")
           if source_errors:
-              failed_sources = ", ".join(kind for kind, _ in source_errors)
+              failed_sources = ", ".join(sorted({kind for kind, _ in source_errors}))
               sys.exit(f"Security alert collection incomplete; failed sources: {failed_sources}")
           PY
