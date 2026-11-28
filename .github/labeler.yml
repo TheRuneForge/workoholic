@@ -1,0 +1,64 @@
+area/frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'apps/web/**'
+
+area/core:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'packages/core/**'
+
+area/automation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'packages/studentconsulting/**'
+
+area/database:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'migrations/**'
+
+area/tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'test/**'
+
+area/tooling:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'tools/**'
+
+area/docker:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docker/**'
+          - 'Dockerfile'
+          - 'compose.yaml'
+          - '.dockerignore'
+
+area/cloudflare:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'wrangler.jsonc'
+          - 'cloudflare.example.env'
+
+area/docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docs/**'
+          - '*.md'
+          - 'zensical.toml'
+          - 'requirements-docs.txt'
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - '.mergify.yml'
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'package.json'
+          - 'package-lock.json'
+          - 'renovate.json'

@@ -1,0 +1,55 @@
+name: Label
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: label-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  paths:
+    name: Label by changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/labeler@v7.0.0
+        with:
+          sync-labels: true
+
+  title:
+    name: Label by title prefix
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@v9.0.0
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        with:
+          script: |
+            const byType = {
+              feat: "enhancement",
+              fix: "bug",
+              docs: "documentation",
+              security: "security",
+              deps: "dependencies",
+            };
+            const match = /^([a-z]+)(?:\([^)]*\))?!?:/.exec(process.env.PR_TITLE || "");
+            const label = match && byType[match[1]];
+            const breaking = /^[a-z]+(?:\([^)]*\))?!:/.test(process.env.PR_TITLE || "");
+            const labels = [label, breaking && "breaking"].filter(Boolean);
+            if (labels.length === 0) return;
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              labels,
+            });
